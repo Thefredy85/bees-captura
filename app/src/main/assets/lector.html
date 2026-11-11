@@ -294,7 +294,11 @@ function parseSegment(lines, dict){
     if (/^subtotal/i.test(l)) continue;
     const dm = l.match(DATE); if (dm && !ITEM.test(l)) { if (!seg.date) seg.date = dm[3]+'-'+String(MONTHS.indexOf(dm[2].toLowerCase())+1).padStart(2,'0')+'-'+dm[1].padStart(2,'0'); continue; }
     const np = l.match(/^(\d+)\s+productos?$/i); if (np) { seg.expected = parseInt(np[1],10); continue; }
-    if (/^cliente$/i.test(l)) { const nx = lines[i+1]; if (nx && !IGNORE.test(nx) && !ITEM.test(nx)) { seg.client = nx; i++; } continue; }
+    if (/^(cliente|usuario)$/i.test(l)) {
+      let j = i+1; while (lines[j] && /pidi[oó]|vez\/veces/i.test(lines[j])) j++;
+      const nx = lines[j]; if (nx && !IGNORE.test(nx) && !ITEM.test(nx)) { seg.client = nx; i = j; }
+      continue;
+    }
     if (/reembolso|pedido cancelado|orden cancelada/i.test(l)) { seg.alerts.push(l); continue; }
     if (IGNORE.test(l)) continue;
     if (/^notas del pedido/i.test(l)) { mode='orderNote'; continue; }
@@ -303,7 +307,7 @@ function parseSegment(lines, dict){
     if (/total/i.test(l)) {
       const v = money(l) ?? (lines[i+1] && MONEY_ONLY.test(lines[i+1]) ? money(lines[i+1]) : null);
       if (v != null) seg.total = v;
-      seg.totalNote = /sin promoci/i.test(l) ? 'sin promoción' : (/sugerido/i.test(l) ? 'sugerido a facturar' : seg.totalNote);
+      seg.totalNote = /ganancia/i.test(l) ? 'ganancia después del descuento' : /sin promoci/i.test(l) ? 'sin promoción' : (/sugerido/i.test(l) ? 'sugerido a facturar' : seg.totalNote);
       mode=''; continue;
     }
     const m = l.match(ITEM);
@@ -551,6 +555,37 @@ Oferta especial (MXN 5.45)
 Total MXN 232.55
 Ajustar pedido
 Listo`},
+{id:'d2', label:'DiDi · #1, 2 pantallas', text:`Bee's Pizza Society Suc Sullivan
+Aceptación automática
+En curso
+#1
+Preparar pedido en 16min
+Asignando socio repartidor
+#1
+Faltan 16 min
+Preparando
+Ver menos
+Pedido recibido
+5:48 pm
+Se inició la preparación
+5:48 pm
+Usuario
+Pidió 1 vez/veces
+yelica
+Socio repartidor
+Asignando socio repartidor
+Notas del pedido
+Cancelar sólo los artículos agotados
+---
+#1
+1x Pizza Bee Hawaiian MX$279.00
+1x Pizza Bee Meat Manía MX$279.00
+Precio total del artículo sin promoción MX$558.00
+Costo de promoción de artículos de la tienda -MX$125.55
+Inversión de promoción de artículos de la tienda -MX$125.55
+Ganancias totales después del descuento MX$432.45
+Más opciones
+Pedido listo`},
 {id:'d1', label:'DiDi · #18', text:`#18
 Procesamiento restante: 25:04:43
 El usuario solicitó un reembolso.
