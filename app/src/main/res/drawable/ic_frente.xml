@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Hexágono de panal con una línea de ticket -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#3A2C00"
+        android:pathData="M54,28 L76.5,41 L76.5,67 L54,80 L31.5,67 L31.5,41 Z" />
+    <path
+        android:fillColor="#F2B705"
+        android:pathData="M43,48 h22 v4 h-22 z M43,56 h22 v4 h-22 z M43,64 h14 v4 h-14 z" />
+</vector>

@@ -1,0 +1,48 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.beespizza.captura'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'com.beespizza.captura'
+        minSdk 26          // Huawei MediaPad M5 lite (Android 8.0)
+        targetSdk 34
+        versionCode 1
+        versionName '0.1'
+    }
+
+    // Misma firma en cada compilación, para poder actualizar la app sin desinstalarla
+    signingConfigs {
+        debug {
+            storeFile file('bees-debug.keystore')
+            storePassword 'android'
+            keyAlias 'androiddebugkey'
+            keyPassword 'android'
+        }
+    }
+
+    buildTypes {
+        debug { signingConfig signingConfigs.debug }
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.debug
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    lint { abortOnError false }
+}
+
+dependencies {
+    // Lectura de imagen dentro de la tableta, sin internet y sin servicios de Google
+    implementation 'com.google.mlkit:text-recognition:16.0.1'
+    // Evita choques de versiones de Kotlin que trae ML Kit
+    implementation platform('org.jetbrains.kotlin:kotlin-bom:1.8.22')
+}

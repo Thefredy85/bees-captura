@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Bee\'s Captura</string>
+    <string name="servicio_desc">Muestra el botón Capturar encima de Uber, DiDi y Rappi. Al tocarlo, lee el pedido abierto en la pantalla y lo manda al registro del día. Solo lee: nunca toca botones de la app de pedidos.</string>
+    <string name="canal">Captura de pantalla</string>
+</resources>
