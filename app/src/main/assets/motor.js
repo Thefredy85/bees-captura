@@ -89,7 +89,7 @@ function prepass(lines){
   for (let i=0;i<lines.length;i++){
     let l = lines[i];
     if (SOLO_QTY.test(l) && lines[i+1]) l = l+' '+lines[++i];
-    if (GUION.test(l)) continue;
+    if (GUION.test(l) && !/^-{3,}$/.test(l)) continue;      // «---» separa pantallas al bajar: se conserva
     // Uber: «Subtotal / Oferta especial / Total» y abajo sus importes en el mismo orden → se emparejan
     if (ETQ_TOTAL.test(l)) {
       let k = i; while (k < lines.length && ETQ_TOTAL.test(lines[k])) k++;
@@ -187,6 +187,7 @@ function parseSegment(lines, dict){
     if (/total|^ganancia/i.test(l)) {
       const v = money(l) ?? (lines[i+1] && MONEY_ONLY.test(lines[i+1]) ? money(lines[i+1]) : null);
       if (/^total\b/.test(l) && seg.subtotal == null && v != null) { seg.subtotal = v; mode=''; continue; }   // Reservándonos: «total» en minúscula = sin envío
+      if (/ganancia/i.test(seg.totalNote) && !/ganancia/i.test(l)) { mode=''; continue; }   // DiDi: lo que manda es la ganancia
       if (v != null) seg.total = v;
       seg.totalNote = /ganancia/i.test(l) ? 'ganancia después del descuento' : /sin promoci/i.test(l) ? 'sin promoción' : (/sugerido/i.test(l) ? 'sugerido a facturar' : seg.totalNote);
       mode=''; continue;
