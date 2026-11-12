@@ -490,9 +490,19 @@ function pintarAjustes(){
   $('ajDict').innerHTML = keys.length ? '<div class="tw"><table><tbody>' + keys.map(k => { const d = dict[k];
     return `<tr><td>${esc(k)}</td><td>${esc(d.tipo === 'incluido' ? 'Incluido' : d.tipo === 'ignorar' ? 'Ignorar' : d.excel)}</td><td class="n"><button class="btn small ghost" type="button" data-olvidar="${esc(k)}">Olvidar</button></td></tr>`; }).join('') + '</tbody></table></div>' : '<p class="hint" style="margin:0">Todavía no hay.</p>';
   $('ajDict').querySelectorAll('[data-olvidar]').forEach(b => b.onclick = () => { delete dict[b.dataset.olvidar]; saveDict(); pintarAjustes(); });
+  const conAvisos = 'avisos' in est, avOn = !!est.avisos;
+  $('ajAvisos').textContent = !APP ? 'Solo en la tableta' : !conAvisos ? 'Actualiza la app' : avOn ? 'Activo' : 'Apagado';
+  $('ajAvisos').className = 'chip ' + (avOn ? 'ok' : 'warn');
+  $('ajAvisosTxt').textContent = !conAvisos ? 'Para avisar al celular cuando entra un pedido, instala la versión nueva (aviso de arriba).'
+    : avOn ? (clave ? 'Cuando Uber, DiDi, Rappi o Reservándonos avisan un pedido en esta tableta, te llega al celular.' : 'Falta la clave de la sucursal (abajo) para mandar los avisos.')
+    : 'Toca el botón, entra a «Bee\'s Captura · avisos de pedidos» y actívalo. Solo lee las notificaciones de las apps de pedidos.';
+  $('ajAvisosBtn').hidden = !APP || !conAvisos || avOn;
+  if (APP && clave && window.Android.guardarClave) window.Android.guardarClave(clave);
   $('ajVersion').textContent = 'Versión ' + (est.version || 'web') + (est.web ? ' · lector ' + est.web : '') + '. Se actualiza sola cuando hay internet.';
 }
 $('ajAcc').onclick = () => window.Android.abrirAccesibilidad();
+$('ajAvisosBtn').onclick = () => window.Android.abrirAvisos && window.Android.abrirAvisos();
+if (APP && clave && window.Android.guardarClave) { try { window.Android.guardarClave(clave); } catch(e) {} }
 $('ajInfo').onclick = () => window.Android.abrirInfoApp();
 $('ajGuardarClave').onclick = async () => {
   const v = $('ajClave').value.trim().toUpperCase(); if (!v) return;

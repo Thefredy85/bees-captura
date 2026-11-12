@@ -146,6 +146,7 @@ public class MainActivity extends Activity {
                 o.put("android", Build.VERSION.SDK_INT);
                 o.put("version", BuildConfigInfo.VERSION);
                 o.put("code", BuildConfigInfo.CODE);
+                o.put("avisos", AvisosService.activo(MainActivity.this));
                 o.put("web", Actualizador.webActiva(MainActivity.this));
                 return o.toString();
             } catch (Exception e) {
@@ -156,6 +157,19 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public void abrirAccesibilidad() {
             Intent i = new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS);
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(i);
+        }
+
+        /** La pantalla le pasa la clave de la sucursal para que los avisos puedan escribir en la base. */
+        @JavascriptInterface
+        public void guardarClave(String c) {
+            AvisosService.prefs(MainActivity.this).edit().putString("clave", c == null ? "" : c.trim()).apply();
+        }
+
+        @JavascriptInterface
+        public void abrirAvisos() {
+            Intent i = new Intent("android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS");
             i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             startActivity(i);
         }
