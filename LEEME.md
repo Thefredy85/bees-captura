@@ -29,3 +29,9 @@ Al final del día, en «Para el Excel», tocar **Compartir conteo** y mandarlo p
 ## Pendiente
 - Juntar los registros de las tres tabletas en un solo lugar (página y Excel).
 - Alertas de pedido nuevo al teléfono.
+
+## Actualizaciones sin QR (desde la v1.1)
+Cada compilación publica en la release `ultima`: `BeesCaptura.apk`, `version.json` y `web.zip` (la pantalla y el lector de `app/src/main/assets`).
+- **Solo cambió la pantalla o la lectura** (app.html, app.js, motor.js, registro.js): sube en 1 el número `web` de `app/src/main/assets/web.json`. Las tabletas lo bajan solas al abrir la app (o cada 20 min) y lo aplican cuando no hay un pedido a medio confirmar.
+- **Cambió el código de Android** (Java, permisos, manifiesto): sube `versionCode`/`versionName` en `app/build.gradle` y `CODE`/`VERSION` en `BuildConfigInfo.java`. Si la pantalla nueva necesita ese APK, pon `minApk` en `web.json` igual al nuevo `versionCode`. En las tabletas sale el aviso «Hay una versión nueva · Actualizar».
+- Si una pantalla descargada no arranca, la app vuelve sola a la que trae el APK y no vuelve a bajar esa versión.
