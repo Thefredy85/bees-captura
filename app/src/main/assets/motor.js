@@ -86,8 +86,25 @@ const VALOR = /^\(?-?(MXN\s*|MX|Mex)?\$?\s?[\d,]+\.\d{1,2}\)?$/i;
 // Lo leído en pantalla puede venir partido: "1x" / "Pizza" / "$329.00". Aquí se vuelve a juntar.
 function prepass(lines){
   const out = [];
+  const mex = lines.some(x => /mex\s?\$/i.test(x));
+  const MEXP = /^mex\s?\$\s*[\d,]+(?:\.\d{1,2})?$/i;
   for (let i=0;i<lines.length;i++){
     let l = lines[i];
+    if (mex) {
+      // Reservándonos: la cajita «[1]», la «X» y el precio pueden llegar en renglones separados
+      if (/^\[?\s?\d{1,2}\s?\]?$/.test(l) && lines[i+1] && /^[xX×]$/.test(lines[i+1])) { l = l+' X'; i++; if (lines[i+1] && MEXP.test(lines[i+1])) l = l+' '+lines[++i]; }
+      else if (/^\[?\s?\d{1,2}\s?\]?$/.test(l) && lines[i+1] && /^[xX×]\s*mex/i.test(lines[i+1])) l = l+' '+lines[++i];
+      else if (/^[xX×]$/.test(l) && lines[i+1] && MEXP.test(lines[i+1])) l = '1 X '+lines[++i];
+      else if (/^[xX×]\s*mex/i.test(l)) l = '1 '+l;
+      // el importe del renglón pudo llegar antes que la cantidad
+      // sin cajita de cantidad: «Bee Classic 35cm» y abajo solo «Mex$ 133.0»
+      if (!RESV_QTY.test(l) && !MONEY_ONLY.test(l) && !ITEM.test(l) && !IGNORE.test(l) && !/total|env[ií]o|^comentario|^id de pedido|^tiempo|^cliente|^repartidor/i.test(l)
+          && /[A-Za-zÁÉÍÓÚÑáéíóúñ]{3}/.test(l) && lines[i+1] && MEXP.test(lines[i+1]) && !(lines[i+2] && /^\[?\s?\d{1,2}\s?\]?$|^[xX×]/.test(lines[i+2]))) {
+        const pr = lines[++i]; if (lines[i+1] && lines[i+1] === pr) i++;
+        out.push('1x '+l+' $'+parseFloat(pr.replace(/[^\d.]/g,'')).toFixed(2)); continue;
+      }
+      if (RESV_QTY.test(l) && out.length > 1 && MEXP.test(out[out.length-1]) && !ITEM.test(out[out.length-2]) && !MONEY_ONLY.test(out[out.length-2])) out.pop();
+    }
     if (SOLO_QTY.test(l) && lines[i+1]) l = l+' '+lines[++i];
     if (GUION.test(l) && !/^-{3,}$/.test(l)) continue;      // «---» separa pantallas al bajar: se conserva
     // Uber: «Subtotal / Oferta especial / Total» y abajo sus importes en el mismo orden → se emparejan

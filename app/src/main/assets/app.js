@@ -263,19 +263,23 @@ function registrar(){
   if (APP && window.Android.registrado) { try { window.Android.registrado(ultimoMsg); } catch(err) {} }
   viewDay = day; estadoConf = 'registrado';
   pintarTodo();
+  // Regresa solo a la app de pedidos; el botón hexagonal se pone verde allá
+  clearTimeout(timerVolver);
+  if (APP && window.Android.volver) timerVolver = setTimeout(() => { if (estadoConf !== 'registrado') return; estadoConf = 'vacio'; pintarConfirmar(); window.Android.volver(); }, 1200);
 }
+let timerVolver = null;
 function pantallaExito(){
   return `<div class="exito">
     <div class="check hex" aria-hidden="true"><svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg></div>
-    <h2>¡Registrado!</h2><p class="hint" style="font-size:17px;margin:0">${esc(ultimoMsg)}</p>
+    <h2>¡Registrado!</h2><p class="hint" style="font-size:17px;margin:0">${esc(ultimoMsg)}</p>${APP ? '<p class="hint" style="margin:0">Regresando a la app de pedidos…</p>' : ''}
     <div style="display:flex;gap:10px;flex-wrap:wrap;justify-content:center">
       ${APP ? '<button class="btn primary" id="exVolver" type="button" style="font-size:20px;padding:18px 28px">Volver a la app de pedidos</button>' : ''}
       <button class="btn ghost" id="exVer" type="button">Ver registro del día</button>
     </div></div>`;
 }
 function enlazarExito(){
-  const v = $('exVolver'); if (v) v.onclick = () => { estadoConf = 'vacio'; pintarConfirmar(); window.Android.volver(); };
-  $('exVer').onclick = () => { estadoConf = 'vacio'; ir('vRegistro'); };
+  const v = $('exVolver'); if (v) v.onclick = () => { clearTimeout(timerVolver); estadoConf = 'vacio'; pintarConfirmar(); window.Android.volver(); };
+  $('exVer').onclick = () => { clearTimeout(timerVolver); estadoConf = 'vacio'; ir('vRegistro'); };
 }
 
 /* ---------- Resumen de ventas ---------- */
