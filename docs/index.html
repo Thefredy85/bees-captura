@@ -14,7 +14,7 @@
   --bg:#f7f5ef; --surface:#fff; --ink:#1f1c16; --muted:#6c6556; --line:#e3ddcd;
   --honey:#f2b705; --honey-ink:#3a2c00; --honey-soft:#fff4cc;
   --ok:#1f7a4d; --ok-soft:#e1f3e9; --bad:#b3261e; --bad-soft:#fbe3e1;
-  --uber:#1f7a4d; --didi:#d4610f; --rappi:#d0204f;
+  --uber:#1f7a4d; --didi:#d4610f; --rappi:#d0204f; --resv:#6b5bd6;
   --display:"Bricolage Grotesque","Arial Rounded MT Bold",system-ui,sans-serif;
   --body:"Inter",system-ui,-apple-system,"Segoe UI",sans-serif;
   color-scheme:light;
@@ -23,7 +23,7 @@
   --bg:#16140f; --surface:#211e17; --ink:#f1ece0; --muted:#a69d89; --line:#38332a;
   --honey:#f5c330; --honey-ink:#2a2000; --honey-soft:#3a3018;
   --ok:#6fd39f; --ok-soft:#173326; --bad:#ff8a80; --bad-soft:#3d1a18;
-  --uber:#6fd39f; --didi:#ffa45c; --rappi:#ff6f93; color-scheme:dark}}
+  --uber:#6fd39f; --didi:#ffa45c; --rappi:#ff6f93; --resv:#a99cff; color-scheme:dark}}
 *{box-sizing:border-box}
 html{-webkit-text-size-adjust:100%}
 body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 var(--body);padding-bottom:env(safe-area-inset-bottom,0px)}
@@ -46,7 +46,8 @@ main{max-width:880px;margin:0 auto;padding:14px max(16px,env(safe-area-inset-rig
 h2{font:600 19px/1.2 var(--display);margin:0}
 .panel{min-width:0;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px;display:grid;gap:12px;min-width:0}
 .row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between}
-.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+.stats{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px}
+@media (max-width:760px){.stats{grid-template-columns:repeat(4,minmax(0,1fr))}.stats .total{grid-column:1/-1}}
 @media (max-width:560px){.stats{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .stat{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 12px;display:grid;gap:2px;font-variant-numeric:tabular-nums;border-top:4px solid var(--c,var(--line))}
 .stat.total{background:var(--honey-soft);border-color:var(--honey);border-top-color:var(--honey)}
@@ -83,7 +84,7 @@ tr.tot td{border-bottom:0;font-weight:800}
 .clave{max-width:420px;margin:40px auto;display:grid;gap:12px;text-align:center}
 .clave input{border:1px solid var(--line);background:var(--surface);border-radius:12px;padding:12px;font-size:18px;text-align:center;letter-spacing:.08em;text-transform:uppercase}
 .hint{color:var(--muted);font-size:13px}
-.uber{--c:var(--uber)} .didi{--c:var(--didi)} .rappi{--c:var(--rappi)}
+.uber{--c:var(--uber)} .didi{--c:var(--didi)} .rappi{--c:var(--rappi)} .resv{--c:var(--resv)}
 </style>
 </head>
 <body>
@@ -166,6 +167,7 @@ const RENGLONES = ['BEE CHEESY WINGS','BEE CLASSIC','BEE MEAT MANIA','BEE MEXICA
   'ADEREZO BBQ','ADEREZO BÚFALO','ADEREZO MANGO HABANERO','ADEREZO RANCH','BEE SAUCE','BEE SAUCE CHIPOTLE','DIP QUESO'];
 const CATS = [['Pizzas',6,19],['Combos / promos',20,29],['Complementos',30,38],['Postres',39,41],['Bebidas',42,60],['Dips / aderezos',61,67]];
 const PL = [['uber','Uber'],['didi','DiDi'],['rappi','Rappi']];
+const PL4 = [...PL, ['resv','Reservándonos']];
 
 const $ = id => document.getElementById(id);
 const store = {
@@ -184,9 +186,10 @@ const dinero = v => '$' + (Number(v)||0).toLocaleString('es-MX',{minimumFraction
 
 let clave = store.get('bees.clave', '');
 let dia = hoy(), filas = [], resumenes = [], filtro = '', timer = null;
-const COMISION = {didi:56.53, uber:58.42, rappi:47.73};
+const COMISION = {didi:56.53, uber:58.42, rappi:47.73, resv:0};
 const neto = (p, v) => Math.round((Number(v)||0) * (1 - COMISION[p]/100) * 100) / 100;
-const PN = {didi:'Didi', uber:'Uber', rappi:'Rappi'};
+const PN = {didi:'Didi', uber:'Uber', rappi:'Rappi', resv:'Reservándonos'};
+const lineaCorte = (p, v) => p === 'resv' ? `Reservandonos: ${dinero(v)}` : `${PN[p]}: ${dinero(v)} -${COMISION[p]}%=${dinero(neto(p, v))}`;
 
 async function sb(query, opts){
   return fetch(SB_URL + query, Object.assign({headers:{apikey:SB_KEY, Authorization:'Bearer '+SB_KEY, 'x-bees-clave':clave}}, opts||{}));
@@ -209,7 +212,7 @@ function mostrar(){
 
 async function cargar(){
   try {
-    const r = await sb('?select=*&dia=eq.' + dia + '&plat=neq.resv&order=created_at.asc');
+    const r = await sb('?select=*&dia=eq.' + dia + '&code=neq.prueba&order=created_at.asc');
     if (!r.ok) throw new Error('La base respondió ' + r.status);
     filas = await r.json();
     const rr = await fetch(SB_URL.replace('delivery_pedidos','delivery_resumen') + '?select=*&dia=eq.' + dia, {headers:{apikey:SB_KEY, Authorization:'Bearer '+SB_KEY, 'x-bees-clave':clave}});
@@ -226,20 +229,20 @@ async function cargar(){
 function textoCorte(){
   const de = p => resumenes.find(r => r.plat === p);
   let tot = 0;
-  const l = ['didi','uber','rappi'].map(p => { const v = de(p) ? Number(de(p).total)||0 : 0; tot += neto(p, v); return `${PN[p]}: ${dinero(v)} -${COMISION[p]}%=${dinero(neto(p, v))}`; });
-  return l.join('\n') + '\nReservandonos: $0\n\nDelivery neto: ' + dinero(tot);
+  const l = ['didi','uber','rappi','resv'].map(p => { const v = de(p) ? Number(de(p).total)||0 : 0; tot += neto(p, v); return lineaCorte(p, v); });
+  return l.join('\n') + '\n\nDelivery neto: ' + dinero(tot);
 }
 function pintarCorte(){
   let h = '<div class="tw"><table><thead><tr><th>App</th><th class="n">Capturados</th><th class="n">Venta</th><th class="n">Neto</th></tr></thead><tbody>';
   let tot = 0;
-  for (const p of ['didi','uber','rappi']) {
+  for (const p of ['didi','uber','rappi','resv']) {
     const r = resumenes.find(x => x.plat === p);
     const regs = filas.filter(f => f.plat === p);
     const cods = new Set(regs.map(f => String(f.code).toUpperCase()));
     const faltan = r ? (r.lista||[]).filter(x => !/cancel/i.test(x.estado||'') && !cods.has(String(x.code).toUpperCase())) : [];
     if (r) tot += neto(p, r.total);
     const av = r && r.pedidos != null && regs.length !== r.pedidos ? `<div class="hint" style="color:var(--bad)">${regs.length < r.pedidos ? 'Faltan '+(r.pedidos-regs.length) : 'Sobran '+(regs.length-r.pedidos)}${faltan.length ? ': #'+faltan.map(x=>esc(x.code)).join(', #') : ''}</div>` : '';
-    h += `<tr><td>${PN[p]}${r ? '' : '<div class="hint">sin resumen</div>'}</td><td class="n">${regs.length}${r && r.pedidos != null ? ' de ' + r.pedidos : ''}${av}</td><td class="n">${r ? dinero(r.total) : '—'}</td><td class="n">${r ? dinero(neto(p, r.total)) : '—'}</td></tr>`;
+    h += `<tr><td><span style="color:var(--${p})">${p === 'resv' ? 'Reserván<wbr>donos' : PN[p]}</span>${r ? '' : '<div class="hint">sin resumen</div>'}</td><td class="n">${regs.length}${r && r.pedidos != null ? ' de ' + r.pedidos : ''}${av}</td><td class="n">${r ? dinero(r.total) : '—'}</td><td class="n">${r ? dinero(neto(p, r.total)) : '—'}</td></tr>`;
   }
   h += `<tr class="tot"><td colspan="3">Delivery neto</td><td class="n">${dinero(tot)}</td></tr></tbody></table></div>`;
   h += `<pre class="hint" style="white-space:pre-wrap;margin:0;font:13px/1.5 ui-monospace,Menlo,monospace">${esc(textoCorte())}</pre>`;
@@ -249,23 +252,24 @@ function pintarCorte(){
 
 function pintar(){
   pintarCorte();
-  const tabla = new Map(), ped = {uber:0,didi:0,rappi:0}, venta = {uber:0,didi:0,rappi:0};
+  const tabla = new Map(), ped = {uber:0,didi:0,rappi:0,resv:0}, venta = {uber:0,didi:0,rappi:0,resv:0};
   for (const f of filas) {
     if (!(f.plat in ped)) continue;
     ped[f.plat]++; venta[f.plat] += Number(f.total) || 0;
     for (const l of (f.lineas||[])) {
+      if (f.plat === 'resv') continue;
       const t = tabla.get(l.excel) || {uber:0,didi:0,rappi:0};
       t[f.plat] += l.qty; tabla.set(l.excel, t);
     }
   }
   const suma = t => t.uber + t.didi + t.rappi;
   let marcas = 0; tabla.forEach(t => marcas += suma(t));
-  const tot = ped.uber + ped.didi + ped.rappi;
-  $('stats').innerHTML = `<div class="stat total"><span>Pedidos</span><b>${tot}</b><small>${dinero(venta.uber+venta.didi+venta.rappi)}</small></div>` +
-    PL.map(([k,n]) => `<div class="stat ${k}" style="--c:var(--${k})"><span>${n}</span><b>${ped[k]}</b><small>${dinero(venta[k])}</small></div>`).join('');
+  const tot = ped.uber + ped.didi + ped.rappi + ped.resv;
+  $('stats').innerHTML = `<div class="stat total"><span>Pedidos</span><b>${tot}</b><small>${dinero(venta.uber+venta.didi+venta.rappi+venta.resv)}</small></div>` +
+    PL4.map(([k,n]) => `<div class="stat ${k}" style="--c:var(--${k})"><span>${n}</span><b>${ped[k]}</b><small>${dinero(venta[k])}</small></div>`).join('');
 
   const todos = $('todos').checked;
-  if (!tot && !todos) $('con').innerHTML = `<div class="vacio">Sin pedidos ${dia === hoy() ? 'todavía hoy' : 'ese día'}.</div>`;
+  if (!marcas && !todos) $('con').innerHTML = `<div class="vacio">Sin productos de Uber, DiDi o Rappi ${dia === hoy() ? 'todavía hoy' : 'ese día'}.</div>`;
   else {
     let h = '<div class="tw"><table><thead><tr><th>Producto</th>' + PL.map(([,n]) => `<th class="n">${n}</th>`).join('') + '<th class="n">Total</th></tr></thead><tbody>';
     for (const [cat,a,b] of CATS) {
@@ -278,17 +282,17 @@ function pintar(){
     $('con').innerHTML = h;
   }
 
-  $('filtros').innerHTML = [['','Todas'], ...PL].map(([k,n]) => `<button aria-pressed="${filtro===k}" data-f="${k}">${n}</button>`).join('');
+  $('filtros').innerHTML = [['','Todas'], ...PL4].map(([k,n]) => `<button aria-pressed="${filtro===k}" data-f="${k}">${n}</button>`).join('');
   $('filtros').querySelectorAll('[data-f]').forEach(b => b.onclick = () => { filtro = b.dataset.f; pintar(); });
   const lista = filas.filter(f => f.plat in ped && (!filtro || f.plat === filtro)).slice().reverse();
   $('peds').innerHTML = lista.length ? lista.map(f => {
-    const n = (PL.find(p => p[0] === f.plat) || [, f.plat])[1];
+    const n = (PL4.find(p => p[0] === f.plat) || [, f.plat])[1];
     const hr = f.created_at && isoDia(new Date(f.created_at)) === f.dia ? hhmm(f.created_at) : 'capturado después';
     return `<li class="ped ${f.plat}"><div class="h"><span class="pl">${n}</span><span class="num">#${esc(f.code)}</span>${f.cust?`<span>${esc(f.cust)}</span>`:''}<span class="hr">${hr}</span></div>
       <div class="pr">${(f.lineas||[]).map(l => (l.qty>1?l.qty+' ':'')+esc(l.excel)).join(' · ') || '<span class="hint">Sin productos del formato</span>'}</div>
       <div class="h"><span class="tt">${f.total!=null?dinero(f.total):'—'}</span>${f.total_nota?`<span class="hint">${esc(f.total_nota)}</span>`:''}</div>
       ${f.nota?`<div class="nt">${esc(f.nota)}</div>`:''}</li>`;
-  }).join('') : `<li class="vacio">Sin pedidos${filtro ? ' de ' + (PL.find(p=>p[0]===filtro)||[])[1] : ''}.</li>`;
+  }).join('') : `<li class="vacio">Sin pedidos${filtro ? ' de ' + (PL4.find(p=>p[0]===filtro)||[])[1] : ''}.</li>`;
 }
 
 async function descargar(){
