@@ -55,7 +55,7 @@ public class MainActivity extends Activity {
                 actualizarEstado();
             }
         });
-        web.loadUrl("file:///android_asset/lector.html");
+        web.loadUrl("file:///android_asset/app.html");
         setContentView(web);
         manejar(getIntent());
     }
@@ -117,6 +117,11 @@ public class MainActivity extends Activity {
             Intent i = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + getPackageName()));
             i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             startActivity(i);
+        }
+
+        @JavascriptInterface
+        public void registrado(String mensaje) {
+            if (CapturaService.instancia != null) CapturaService.instancia.marcarRegistrado(mensaje);
         }
 
         @JavascriptInterface

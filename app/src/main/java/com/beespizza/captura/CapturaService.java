@@ -6,8 +6,6 @@ import android.content.SharedPreferences;
 import android.graphics.Bitmap;
 import android.graphics.PixelFormat;
 import android.graphics.Rect;
-import android.graphics.Typeface;
-import android.graphics.drawable.GradientDrawable;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
@@ -18,7 +16,6 @@ import android.view.View;
 import android.view.WindowManager;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
-import android.widget.TextView;
 import android.widget.Toast;
 
 import com.google.mlkit.vision.common.InputImage;
@@ -51,7 +48,7 @@ public class CapturaService extends AccessibilityService {
 
     private final Handler h = new Handler(Looper.getMainLooper());
     private WindowManager wm;
-    private TextView burbuja;
+    private Burbuja burbuja;
     private WindowManager.LayoutParams lp;
     private boolean ocupado = false;
 
@@ -99,19 +96,7 @@ public class CapturaService extends AccessibilityService {
         if (burbuja != null) return;
         wm = (WindowManager) getSystemService(WINDOW_SERVICE);
 
-        burbuja = new TextView(this);
-        burbuja.setText("Capturar");
-        burbuja.setTextColor(0xFF3A2C00);
-        burbuja.setTypeface(Typeface.DEFAULT_BOLD);
-        burbuja.setTextSize(16);
-        burbuja.setGravity(Gravity.CENTER);
-        burbuja.setPadding(dp(20), dp(12), dp(20), dp(12));
-        GradientDrawable fondo = new GradientDrawable();
-        fondo.setColor(0xFFF2B705);
-        fondo.setCornerRadius(dp(28));
-        fondo.setStroke(dp(2), 0xFF3A2C00);
-        burbuja.setBackground(fondo);
-        burbuja.setElevation(dp(6));
+        burbuja = new Burbuja(this);
 
         lp = new WindowManager.LayoutParams(
                 WindowManager.LayoutParams.WRAP_CONTENT,
@@ -172,7 +157,15 @@ public class CapturaService extends AccessibilityService {
     }
 
     private void estadoBurbuja(String texto) {
-        if (burbuja != null) burbuja.setText(texto);
+        if (burbuja != null) burbuja.setEstado(texto.startsWith("Leyendo") ? Burbuja.LEYENDO : Burbuja.LISTO);
+    }
+
+    /** La pantalla de confirmación avisa que se registró: el hexágono se pone verde y sale el aviso. */
+    void marcarRegistrado(String mensaje) {
+        h.post(() -> {
+            if (burbuja != null) burbuja.setEstado(Burbuja.HECHO);
+            if (mensaje != null && !mensaje.isEmpty()) Toast.makeText(this, mensaje, Toast.LENGTH_SHORT).show();
+        });
     }
 
     private void aviso(String m) {
@@ -196,7 +189,7 @@ public class CapturaService extends AccessibilityService {
         }
         paquete = String.valueOf(raiz.getPackageName());
         if (paquete.equals(getPackageName())) {
-            aviso("Primero abre el pedido en la app de Uber, DiDi o Rappi.");
+            aviso("Primero abre el pedido en Uber, DiDi, Rappi o Reservándonos.");
             return;
         }
         ocupado = true;
@@ -212,6 +205,7 @@ public class CapturaService extends AccessibilityService {
         if (p.contains("uber")) return "Uber";
         if (p.contains("rappi")) return "Rappi";
         if (p.contains("didi")) return "DiDi";
+        if (p.contains("reserv")) return "Reservándonos";
         return "";
     }
 

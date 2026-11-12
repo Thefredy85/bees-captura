@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Bee's Captura</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Inter:wght@400;500;600;700&display=swap">
+<style>
+/* Diseño A · Panal: fondo crema, miel con negro, hexágonos; una pantalla a la vez y un dock abajo */
+:root{
+  --bg:#f7f3e8; --surface:#ffffff; --soft:#fbf8ef; --ink:#1f1c16; --muted:#6c6556; --line:#e6dfcc;
+  --honey:#f2b705; --honey-ink:#3a2c00; --honey-soft:#fff4cc;
+  --ok:#1f7a4d; --ok-soft:#e3f3ea; --warn:#a14a07; --warn-soft:#fdecd9; --bad:#b3261e; --bad-soft:#fbe3e1;
+  --uber:#1f7a4d; --didi:#c4570b; --rappi:#d0204f; --resv:#6b5bd6;
+  --display:"Bricolage Grotesque","Arial Rounded MT Bold",system-ui,sans-serif;
+  --body:"Inter",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  color-scheme:light;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.4 var(--body);-webkit-tap-highlight-color:transparent}
+[hidden]{display:none!important}
+button,input,select{font:inherit;color:inherit}
+button{cursor:pointer}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid var(--honey);outline-offset:2px}
+.hex{clip-path:polygon(50% 0,100% 25%,100% 75%,50% 100%,0 75%,0 25%)}
+.num{font-variant-numeric:tabular-nums}
+
+/* ---------- encabezado ---------- */
+.top{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:14px;padding:12px max(20px,env(safe-area-inset-right)) 12px max(20px,env(safe-area-inset-left));background:var(--surface);border-bottom:1px solid var(--line)}
+.top .logo{width:28px;height:32px;background:var(--honey)}
+.top h1{margin:0;font:800 23px/1 var(--display);white-space:nowrap}
+.top .sp{flex:1}
+.sync{display:flex;align-items:center;gap:8px;border-radius:999px;padding:7px 13px;font-weight:600;font-size:14px;background:var(--ok-soft);color:var(--ok);border:0}
+.sync i{width:8px;height:8px;border-radius:50%;background:currentColor}
+.sync.off{background:var(--bad-soft);color:var(--bad)} .sync.warn{background:var(--warn-soft);color:var(--warn)}
+.clock{font:600 20px/1 var(--display)}
+.icon-btn{width:44px;height:44px;border-radius:12px;border:1px solid var(--line);background:var(--surface);display:grid;place-items:center}
+
+main{padding:20px max(20px,env(safe-area-inset-right)) 120px max(20px,env(safe-area-inset-left))}
+.vista{animation:aparece .3s cubic-bezier(.2,.8,.2,1) both}
+@keyframes aparece{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+
+/* ---------- dock ---------- */
+.dock{position:fixed;left:50%;bottom:calc(16px + env(safe-area-inset-bottom));transform:translateX(-50%);z-index:30;display:flex;gap:6px;background:var(--ink);border-radius:999px;padding:7px;box-shadow:0 18px 40px -16px rgba(0,0,0,.55);max-width:calc(100% - 24px)}
+.dock button{border:0;background:transparent;color:#fff;border-radius:999px;padding:12px 20px;font-weight:600;font-size:16px;display:flex;align-items:center;gap:9px;white-space:nowrap;transition:background .2s,color .2s}
+.dock button[aria-current="page"]{background:var(--honey);color:var(--honey-ink);font-weight:700}
+.dock .badge{background:var(--honey);color:var(--honey-ink);border-radius:999px;padding:1px 8px;font-size:13px;font-weight:700}
+.dock button[aria-current="page"] .badge{background:var(--honey-ink);color:var(--honey)}
+@media (max-width:620px){.dock button{padding:11px 13px;font-size:14px}.dock .lbl-largo{display:none}}
+
+/* ---------- piezas comunes ---------- */
+.card{background:var(--surface);border-radius:22px;padding:22px 24px;box-shadow:0 1px 0 var(--line),0 18px 40px -30px rgba(58,44,0,.35);min-width:0}
+.dark{background:var(--ink);color:#fff;border-radius:22px;padding:22px 24px}
+.eyebrow{font-size:12px;letter-spacing:.1em;text-transform:uppercase;font-weight:700;color:var(--muted)}
+.dark .eyebrow{color:#cfc6b1}
+.chip{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:6px 12px;font-weight:700;font-size:14px;background:var(--soft);color:var(--ink);white-space:nowrap}
+.chip.ok{background:var(--ok-soft);color:var(--ok)} .chip.warn{background:var(--warn-soft);color:var(--warn)} .chip.bad{background:var(--bad-soft);color:var(--bad)}
+.plat{color:#fff;font-weight:700;border-radius:10px;padding:6px 13px;font-size:15px;letter-spacing:.03em;text-transform:uppercase}
+.banner{border-radius:14px;padding:12px 16px;font-weight:600;font-size:15px}
+.banner.warn{background:var(--warn-soft);color:var(--warn)} .banner.bad{background:var(--bad-soft);color:var(--bad)} .banner.ok{background:var(--ok-soft);color:var(--ok)}
+.btn{border:0;border-radius:18px;padding:16px 22px;font-weight:700;font-size:17px}
+.btn.primary{background:var(--honey);color:var(--honey-ink);font:800 24px/1.1 var(--display);padding:22px}
+.btn.primary:disabled{opacity:.45;cursor:not-allowed;animation:none}
+.btn.ghost{background:transparent;border:2px solid var(--ink)}
+.btn.small{padding:10px 16px;font-size:15px;border-radius:12px}
+.btn.dark{background:var(--ink);color:#fff}
+.pulso{animation:pulso 2s infinite}
+@keyframes pulso{0%,100%{box-shadow:0 0 0 0 rgba(242,183,5,.6)}50%{box-shadow:0 0 0 12px rgba(242,183,5,0)}}
+.hint{color:var(--muted);font-size:14px}
+.tw{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:15px;font-variant-numeric:tabular-nums}
+th,td{padding:9px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+th{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:700}
+td.n,th.n{text-align:right}
+td.n{font-weight:700}
+td.cero{color:var(--muted);font-weight:400;opacity:.55}
+tr.cat td{background:var(--soft);font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:700}
+tr.tot td{font-weight:800;border-bottom:0}
+select{border:1px solid var(--line);background:var(--surface);border-radius:12px;padding:10px 12px;min-width:0;max-width:100%}
+input{border:1px solid var(--line);background:var(--surface);border-radius:12px;padding:10px 12px;min-width:0}
+
+/* ---------- Confirmar ---------- */
+.conf{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:22px;align-items:start}
+@media (max-width:980px){.conf{grid-template-columns:1fr}}
+.entra{animation:entra .45s cubic-bezier(.2,.8,.2,1) both}
+.entra2{animation:entra .45s .08s cubic-bezier(.2,.8,.2,1) both}
+.entra3{animation:entra .45s .16s cubic-bezier(.2,.8,.2,1) both}
+@keyframes entra{from{transform:translateY(18px);opacity:0}to{transform:none;opacity:1}}
+.pedido{display:flex;flex-direction:column;gap:16px}
+.ped-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.ped-num{font:800 38px/1.05 var(--display);letter-spacing:-.01em;word-break:break-all}
+.ped-num input{font:800 30px/1 var(--display);width:12ch}
+.meta{display:flex;gap:6px 20px;flex-wrap:wrap;color:var(--muted);font-size:15px}
+.meta b{color:var(--ink)}
+.items{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:10px}
+.item{display:grid;grid-template-columns:56px minmax(0,1fr) auto;gap:14px;align-items:center;padding:12px 14px;border-radius:16px;background:var(--soft)}
+.item .q{width:50px;height:54px;background:var(--honey);display:grid;place-items:center;font:800 23px/1 var(--display)}
+.item.combo{background:var(--honey-soft);outline:2px solid var(--honey)}
+.item.combo .q{background:var(--honey-ink);color:var(--honey)}
+.item.nuevo{background:var(--warn-soft);outline:2px solid var(--warn)}
+.item.nocuenta{opacity:.6}
+.item .nom{font-weight:700;font-size:19px}
+.item .sub{color:var(--muted);font-size:14px;margin-top:2px}
+.item .piezas{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+.item .piezas span{background:var(--surface);border-radius:999px;padding:4px 10px;font-size:13px;font-weight:600}
+.item .der{color:var(--muted);font-size:14px;text-align:right}
+.item .der b{color:var(--ok)}
+.item select{margin-top:8px;width:100%}
+.nota{color:var(--bad);font-size:14px;font-weight:600}
+.marcas{display:flex;flex-wrap:wrap;gap:6px}
+.marcas span{background:var(--honey-soft);border-radius:8px;padding:5px 9px;font-size:13px;font-weight:700}
+.lado{display:flex;flex-direction:column;gap:14px}
+.monto{font:800 50px/1.05 var(--display);color:var(--honey)}
+.vacio{display:grid;place-items:center;text-align:center;gap:16px;padding:40px 16px}
+.vacio .big{width:120px;height:136px;background:var(--honey);display:grid;place-items:center}
+.vacio h2{margin:0;font:800 30px/1.15 var(--display);text-wrap:balance}
+.vacio p{margin:0;max-width:46ch;color:var(--muted);font-size:17px}
+.late{animation:late 2s ease-in-out infinite}
+@keyframes late{0%,100%{transform:scale(1)}50%{transform:scale(1.06)}}
+.pasos{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;width:100%;max-width:820px;text-align:left}
+.paso{background:var(--surface);border-radius:18px;padding:16px 18px;display:grid;gap:8px;border-left:6px solid var(--line)}
+.paso.ok{border-left-color:var(--ok)} .paso.falta{border-left-color:var(--warn)}
+.exito{display:grid;place-items:center;gap:14px;padding:40px 16px;text-align:center}
+.exito .check{width:130px;height:146px;background:var(--ok);display:grid;place-items:center;animation:salta .5s cubic-bezier(.2,1.4,.4,1) both}
+@keyframes salta{from{transform:scale(.4);opacity:0}to{transform:none;opacity:1}}
+.exito .check path{stroke-dasharray:30;stroke-dashoffset:30;animation:traza .5s .25s ease-out forwards}
+@keyframes traza{to{stroke-dashoffset:0}}
+.exito h2{margin:0;font:800 34px/1.1 var(--display)}
+
+/* ---------- Registro ---------- */
+.dia{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-bottom:16px}
+.dia h2{margin:0 8px 0 0;font:800 28px/1.1 var(--display)}
+.dia .nav{display:flex;align-items:center;gap:4px;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:4px}
+.dia .nav button{border:0;background:transparent;border-radius:10px;padding:8px 12px;min-width:44px;min-height:40px;font-weight:700}
+.dia .nav span{font-weight:600;padding:0 6px}
+.stats{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;margin-bottom:16px}
+@media (max-width:860px){.stats{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media (max-width:520px){.stats{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.stat{background:var(--surface);border-radius:18px;padding:14px 16px;border-top:5px solid var(--c,var(--line))}
+.stat b{display:block;font:800 32px/1.1 var(--display)}
+.stat.total{background:var(--ink);color:#fff;border-top-color:var(--honey)}
+.stat.total b{color:var(--honey)}
+.stat.total .eyebrow{color:#cfc6b1}
+.filtros{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+.filtros button{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:9px 16px;font-weight:600}
+.filtros button[aria-pressed="true"]{background:var(--ink);color:#fff;border-color:var(--ink)}
+.lista{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:10px}
+.fila{background:var(--surface);border-radius:16px;border-left:6px solid var(--c);overflow:hidden}
+.fila > button{all:unset;box-sizing:border-box;cursor:pointer;width:100%;display:grid;grid-template-columns:64px 170px minmax(0,1fr) 110px;gap:14px;align-items:center;padding:13px 16px}
+.fila > button:focus-visible{outline:3px solid var(--honey);outline-offset:-3px}
+@media (max-width:760px){.fila > button{grid-template-columns:56px minmax(0,1fr) 96px}.fila .prods{grid-column:1/-1}}
+.fila .hr{font:600 19px/1 var(--display)}
+.fila .pl{font-weight:700;color:var(--c)}
+.fila .id{font-size:13px;color:var(--muted);word-break:break-all}
+.fila .prods{font-size:15px}
+.fila .tt{text-align:right;font-weight:700}
+.fila .tt small{display:block;color:var(--muted);font-weight:400;font-size:12px}
+.fila .det{padding:0 16px 14px;display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.fila.nueva{animation:flash 2.4s ease-out both}
+@keyframes flash{0%{background:var(--honey-soft)}100%{background:var(--surface)}}
+.empty{border:2px dashed var(--line);border-radius:18px;padding:30px;text-align:center;color:var(--muted)}
+
+/* ---------- Excel y corte ---------- */
+.dos{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:20px;align-items:start}
+@media (max-width:980px){.dos{grid-template-columns:1fr}}
+.card h3{margin:0;font:800 22px/1.2 var(--display)}
+.fila-tit{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+pre.corte{margin:12px 0 0;white-space:pre-wrap;font:14px/1.6 ui-monospace,Menlo,Consolas,monospace;background:var(--soft);border-radius:14px;padding:12px 14px}
+
+/* ---------- Ajustes ---------- */
+.capa{position:fixed;inset:0;background:rgba(31,28,22,.45);z-index:40;display:flex;justify-content:flex-end;animation:aparece .2s both}
+.panel{width:min(480px,100%);height:100%;overflow-y:auto;background:var(--bg);padding:20px 22px 40px;display:flex;flex-direction:column;gap:14px;animation:desliza .3s cubic-bezier(.2,.8,.2,1) both}
+@keyframes desliza{from{transform:translateX(40px);opacity:0}to{transform:none;opacity:1}}
+.panel h2{margin:0;font:800 26px/1.1 var(--display)}
+.toast{position:fixed;left:50%;top:calc(76px + env(safe-area-inset-top));transform:translateX(-50%);z-index:50;background:var(--ok);color:#fff;border-radius:14px;padding:12px 18px;font-weight:700;box-shadow:0 12px 30px -10px rgba(0,0,0,.4);animation:entra .3s both;max-width:calc(100% - 32px)}
+.toast.bad{background:var(--bad)}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="logo hex" aria-hidden="true"></div>
+  <h1>Bee's Captura</h1>
+  <div class="sp"></div>
+  <button class="sync" id="sync" type="button"><i></i><span id="syncTxt">Conectando…</span></button>
+  <div class="clock num" id="reloj">--:--</div>
+  <button class="icon-btn" id="btnAjustes" type="button" aria-label="Ajustes">
+    <svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.7 1.7 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.8-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1.1-1.5 1.7 1.7 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.8 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.5-1.1 1.7 1.7 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.8.3H9a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.8V9a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z"></path></svg>
+  </button>
+</header>
+
+<main>
+  <section id="vConfirmar" class="vista" aria-label="Confirmar pedido"></section>
+  <section id="vRegistro" class="vista" aria-label="Registro del día" hidden></section>
+  <section id="vExcel" class="vista" aria-label="Excel y corte" hidden></section>
+</main>
+
+<nav class="dock" aria-label="Secciones">
+  <button type="button" data-v="vConfirmar" aria-current="page">
+    <svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l8.66 5v10L12 22l-8.66-5V7z"></path><path d="M8.5 12l2.5 2.5 4.5-5"></path></svg>Confirmar
+  </button>
+  <button type="button" data-v="vRegistro">
+    <svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"></path></svg><span>Registro<span class="lbl-largo"> del día</span></span> <span class="badge num" id="badgeHoy">0</span>
+  </button>
+  <button type="button" data-v="vExcel">
+    <svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"></rect><path d="M3 9h18M9 3v18"></path></svg><span>Excel<span class="lbl-largo"> y corte</span></span>
+  </button>
+</nav>
+
+<div class="capa" id="ajustes" hidden>
+  <div class="panel" role="dialog" aria-modal="true" aria-labelledby="ajTit">
+    <div style="display:flex;justify-content:space-between;align-items:center"><h2 id="ajTit">Ajustes</h2><button class="icon-btn" id="ajCerrar" type="button" aria-label="Cerrar ajustes">✕</button></div>
+    <div class="card" style="display:grid;gap:10px">
+      <div style="display:flex;justify-content:space-between;align-items:center"><b>Botón Capturar</b><span class="chip" id="ajBoton">—</span></div>
+      <p class="hint" id="ajBotonTxt" style="margin:0"></p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn small dark" id="ajAcc" type="button">Abrir accesibilidad</button>
+        <button class="btn small ghost" id="ajInfo" type="button">Permitir ajustes restringidos</button>
+      </div>
+    </div>
+    <div class="card" style="display:grid;gap:10px">
+      <div style="display:flex;justify-content:space-between;align-items:center"><b>Juntar las tabletas</b><span class="chip" id="ajSync">—</span></div>
+      <p class="hint" id="ajSyncTxt" style="margin:0"></p>
+      <label for="ajClave" class="eyebrow">Clave de la sucursal</label>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><input id="ajClave" autocomplete="off" autocapitalize="characters" placeholder="BEES-XXXX-XXXX" style="flex:1"><button class="btn small" id="ajGuardarClave" type="button" style="background:var(--honey)">Guardar</button></div>
+    </div>
+    <div class="card" style="display:grid;gap:10px">
+      <b>Productos aprendidos</b>
+      <p class="hint" style="margin:0">Cuando un producto llega con un nombre nuevo y eliges a cuál corresponde, se guarda aquí.</p>
+      <div id="ajDict"></div>
+    </div>
+    <p class="hint" id="ajVersion"></p>
+  </div>
+</div>
+<div class="toast" id="toast" role="status" hidden></div>
+
+<script src="jszip.min.js"></script>
+<script src="plantilla.js"></script>
+<script src="registro.js"></script>
+<script src="motor.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
