@@ -527,6 +527,12 @@ window.cargarCaptura = async (t, plataforma, met) => {
   texto = String(t || ''); plataformaHint = PLATS.includes(plataforma) ? plataforma : ''; metodo = met || '';
   order = null; resumen = null; leer();
   ir('vConfirmar');
+  // Si no salió ningún producto, se guarda lo que leyó la tableta para poder corregir el lector
+  if (SYNC() && order && (!order.products.length || order.total == null)) {
+    let est = {}; try { est = JSON.parse(window.Android.estado()); } catch(e) {}
+    sb('POST', 'delivery_lecturas', '', {plat: order.platform || plataformaHint || null, tableta: plataformaHint || null, metodo: metodo || null,
+      motivo: !order.products.length ? 'sin productos' : 'sin total', version: (est.version || 'web') + '/' + (est.web || ''), texto: texto.slice(0, 12000)}).catch(() => {});
+  }
   const d = resumen ? (resumen.dia || hoy()) : dayOf();
   if (SYNC()) { await refrescar(d); pintarConfirmar(); }
 };

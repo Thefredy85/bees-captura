@@ -260,7 +260,8 @@ function mergeProducts(A,B){
 }
 
 function parseOrder(text, hint, dict){
-  const lines = prepass(String(text).split(/\r?\n/).map(s=>s.replace(/\s+/g,' ').trim()).filter(Boolean));
+  // Los íconos de las apps llegan como caracteres privados (\uE000–\uF8FF): se quitan
+  const lines = prepass(String(text).split(/\r?\n/).map(s=>s.replace(/[\uE000-\uF8FF]/g,'').replace(/\s+/g,' ').trim()).filter(Boolean));
   const segs = splitSegments(lines).map(s => parseSegment(s, dict));
   const o = {platform: hint || detectPlatform(text), number:'', products:[], orderNotes:[], alerts:[], total:null, totalNote:'', expected:null, date:'', client:'', captures:segs.length, mixedNumbers:false};
   for (const s of segs){
