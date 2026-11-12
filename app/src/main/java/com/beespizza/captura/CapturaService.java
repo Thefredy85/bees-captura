@@ -391,12 +391,15 @@ public class CapturaService extends AccessibilityService {
      */
     private String ordenarRenglones(Text t, int ancho) {
         List<Text.Line> lineas = new ArrayList<>();
+        // DiDi tiene dos pantallas: el pedido en curso (lista de pedidos a la izquierda)
+        // y el detalle del historial (ventana completa con la línea de tiempo a la derecha)
+        boolean historialDidi = "DiDi".equals(plataforma) && t.getText().matches("(?is).*(imprimir recibo|soporte didi|socio repartidor).*");
         for (Text.TextBlock b : t.getTextBlocks()) {
             for (Text.Line l : b.getLines()) {
                 Rect r = l.getBoundingBox();
                 if (r == null) continue;
                 float x = r.left / (float) ancho;
-                if ("DiDi".equals(plataforma) ? x < 0.38f : x > 0.64f) continue;
+                if (historialDidi ? x > 0.68f : "DiDi".equals(plataforma) ? x < 0.38f : x > 0.64f) continue;
                 lineas.add(l);
             }
         }
