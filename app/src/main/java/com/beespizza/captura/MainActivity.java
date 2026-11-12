@@ -1,13 +1,24 @@
 package com.beespizza.captura;
 
+import android.Manifest;
 import android.app.Activity;
 import android.content.ClipData;
 import android.content.ClipboardManager;
+import android.content.ContentResolver;
+import android.content.ContentValues;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Environment;
+import android.provider.MediaStore;
 import android.provider.Settings;
+import android.util.Base64;
+
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.OutputStream;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
@@ -33,6 +44,8 @@ public class MainActivity extends Activity {
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);
         s.setAllowFileAccess(true);
+        // La pantalla vive en los archivos de la app y habla con la base en línea
+        s.setAllowUniversalAccessFromFileURLs(true);
         web.addJavascriptInterface(new Puente(), "Android");
         web.setWebViewClient(new WebViewClient() {
             @Override
@@ -115,6 +128,45 @@ public class MainActivity extends Activity {
         public void copiar(String t) {
             ClipboardManager cm = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
             cm.setPrimaryClip(ClipData.newPlainText("Bee's Captura", t));
+        }
+
+        /** Guarda el Excel en Descargas/Bees y abre el menú para compartirlo. Devuelve el mensaje para la pantalla. */
+        @JavascriptInterface
+        public String guardarExcel(String nombre, String base64) {
+            try {
+                byte[] datos = Base64.decode(base64, Base64.DEFAULT);
+                String tipo = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+                if (Build.VERSION.SDK_INT >= 29) {
+                    ContentResolver cr = getContentResolver();
+                    ContentValues v = new ContentValues();
+                    v.put(MediaStore.MediaColumns.DISPLAY_NAME, nombre);
+                    v.put(MediaStore.MediaColumns.MIME_TYPE, tipo);
+                    v.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/Bees");
+                    Uri uri = cr.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, v);
+                    if (uri == null) return "No se pudo crear el archivo en Descargas.";
+                    try (OutputStream os = cr.openOutputStream(uri)) { os.write(datos); }
+                    Intent i = new Intent(Intent.ACTION_SEND);
+                    i.setType(tipo);
+                    i.putExtra(Intent.EXTRA_STREAM, uri);
+                    i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                    Intent elegir = Intent.createChooser(i, "Enviar Excel del día");
+                    elegir.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    startActivity(elegir);
+                    return "Guardado en Descargas/Bees: " + nombre;
+                } else {
+                    if (checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+                        runOnUiThread(() -> requestPermissions(new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE}, 9));
+                        return "Acepta el permiso de almacenamiento y vuelve a tocar «Descargar Excel del día».";
+                    }
+                    File dir = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "Bees");
+                    if (!dir.exists()) dir.mkdirs();
+                    File f = new File(dir, nombre);
+                    try (FileOutputStream os = new FileOutputStream(f)) { os.write(datos); }
+                    return "Guardado en Descargas/Bees: " + nombre;
+                }
+            } catch (Exception e) {
+                return "No se pudo guardar el Excel: " + e.getMessage();
+            }
         }
 
         @JavascriptInterface

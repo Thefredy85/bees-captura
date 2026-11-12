@@ -105,6 +105,16 @@ details summary{cursor:pointer;font-family:var(--display);font-weight:600;font-s
       <button class="small primary" id="btnAcc">Abrir ajustes de accesibilidad</button>
       <button class="small ghost" id="btnInfo">Permitir ajustes restringidos</button>
     </div>
+    <div class="row" style="justify-content:space-between;border-top:1px solid var(--line);padding-top:12px">
+      <h2>Juntar las 3 tabletas</h2>
+      <span class="chip" id="syncEstado">Sin clave</span>
+    </div>
+    <p class="hint" id="syncAyuda">Escribe la clave de la sucursal para que esta tableta comparta sus pedidos con las otras dos. Se pide una sola vez.</p>
+    <div class="row" id="claveFila">
+      <label class="label" for="claveInput">Clave de la sucursal</label>
+      <input id="claveInput" autocomplete="off" autocapitalize="characters" placeholder="BEES-XXXX-XXXX" style="min-width:12ch">
+      <button class="small primary" id="btnClave">Guardar clave</button>
+    </div>
   </section>
 
   <div class="grid2">
@@ -155,7 +165,12 @@ details summary{cursor:pointer;font-family:var(--display);font-weight:600;font-s
       <div class="tabs" id="xlTabs"></div>
     </div>
     <div id="xl"></div>
-    <div class="row"><button class="small" id="btnCopyXl">Copiar conteo</button><span class="msg" id="xlMsg"></span></div>
+    <div class="row">
+      <button class="small primary" id="btnExcel" hidden>Descargar Excel del día</button>
+      <button class="small" id="btnCopyXl">Copiar conteo</button>
+      <span class="msg" id="xlMsg"></span>
+    </div>
+    <div id="xlReporte" class="hint" hidden></div>
   </section>
 
   <details class="panel">
@@ -165,11 +180,14 @@ details summary{cursor:pointer;font-family:var(--display);font-weight:600;font-s
   </details>
 </div>
 
+<script src="jszip.min.js"></script>
+<script src="plantilla.js"></script>
+<script src="registro.js"></script>
 <script>
 /*PARSER-START*/
 const norm = s => String(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().replace(/[^a-z0-9 ]+/g,' ').replace(/\s+/g,' ').trim();
-const STOP = new Set(['pizza','de','la','el','del','con','y','orden','agua']);
-const tokens = s => norm(s).replace(/\b(pzas|piezas|pza|pzs)\b/g,'pz').split(' ').filter(t => t && !STOP.has(t));
+const STOP = new Set(['pizza','de','la','el','del','con','y','orden','agua','ml','cola','regular']);
+const tokens = s => norm(s).replace(/\b(pzas|piezas|pza|pzs)\b/g,'pz').replace(/\b2 ?l(ts|itros)?\b/g,'2l').split(' ').filter(t => t && !STOP.has(t));
 function near(a,b){
   if (a===b) return true;
   if (Math.min(a.length,b.length) < 5 || Math.abs(a.length-b.length) > 1) return false;
@@ -182,20 +200,32 @@ function near(a,b){
   return ed + (a.length-i) + (b.length-j) <= 1;
 }
 
+// Productos con los mismos nombres que usa el comandero para llenar el formato REGISTRO DELIVERY
 const CATALOG = [
-  {cat:'Pizzas', names:['Hawaiian Bee','Xtreme Bee','Bee Veggie','Tropical Spicy','Bee Meat Mania','Bee Mexican','Supreme Bee','Bee Classic','Tropical Puff','Queen Bee','Bee Cheesy Wings','Pizza 2 Especialidades','Bee Mix Manía Hawaiana','Bee Mix Manía Mexicana','Bee Mix Manía Meat Mania','Bee Mix Manía Tropical Spicy','Bee Mix Manía Vegetariana','Bumblebee Pepperoni','Bumblebee Hawaianos','Bumblebee Mexicanos','Bumblebee Queso']},
-  {cat:'Combos', names:['Combo Clásico','Bee Duo','Bee Cheesy Pack','Bee Hawaiian Combo']},
-  {cat:'Complementos', names:['Bee Crust Pepperoni','Bee Crust Hawaiano','Bee Crust Queso','Bee Crust Champiñones','Cheesy Bombs 8 pz','Cheesy Bombs 12 pz','Sweet Bites 8 pz','Sweet Bites 12 pz','Canela Dips',"Bee's Chicken",'Papas Bee Gajo']},
-  {cat:'Bebidas', names:['Bee Water Jamaica','Bee Water Limón con Chía','Bee Water Maracuyá','Bee Water Horchata','Coca-Cola 600 ml','Coca-Cola 2 L','Sprite 600 ml','Sprite 2 L','Fanta 600 ml','Fanta 2 L','Mundet 600 ml','Mundet 2 L','Fuze Tea Limón','Fuze Tea Limón con té negro','Fuze Tea Durazno','Fuze Tea Frutos rojos']},
-  {cat:'Extras', names:['Orilla de queso','Aderezo BBQ','Aderezo Ranch','Aderezo Búfalo','Aderezo Mango Habanero','Dip de Queso','Bee Sauce','Aderezo de chocolate']},
+  {cat:'Pizzas', names:['Bee Cheesy Wings','Bee Classic','Bee Meat Mania','Bee Mexican Pizza','Bee Mix Manía (Hawaiana)','Bee Mix Manía (Mexicana)','Bee Mix Manía (Meat Mania)','Bee Mix Manía (Tropical Spicy)','Bee Mix Manía (Vegetariana)','Bee Taco Pizza','Bee Tropical Puff','Bee Veggie','Double Cheese','Hawaiian Bee','Supreme Bee','Tropical Bee Spicy','Xtreme Bee','Queen Bee','Pibil Bee']},
+  {cat:'Combos', names:['Combo Antojo','Bee Cheesy Pack','Bee Crunch','Bee Double Date','Bee Hawaiian Combo','Bee Pizza & Chicken','Tropical Feast','Combo Queen Bee','Bee Duo','Combo Pibil Bee','Combo Clásico']},
+  {cat:'Complementos', names:['Cheesy Bombs 8 pz','Cheesy Bombs 12 pz','Bee Crust (Pepperoni)','Bee Crust (Hawaiano)','Bee Crust (Queso)','Bee Crust (Champiñones)','Bee’s Chicken','Bee’s Wings','Bumblebee Hawaianos','Bumblebee Pepperoni','Bumblebee Mexicanos','Bumblebee de Queso','Papas Gajo']},
+  {cat:'Postres', names:['Canela Dips','Sweet Bee Bites 8 pz','Sweet Bee Bites 12 pz']},
+  {cat:'Bebidas', names:['Bee Water (Jamaica)','Bee Water (Limón con Chía)','Bee Water (Maracuyá)','Bee Water (Horchata)','Agua Mineral 600','Agua Natural 600','Coca 2L','Coca 600','Coca Light 600','Coca Zero 600','Fanta 2L','Fanta 600','Fuze Tea Durazno','Fuze Tea Frutos Rojos','Fuze Tea Limón','Mundet 2L','Mundet 600','Sprite 2L','Sprite 600']},
+  {cat:'Extras', names:['Orilla de queso','Aderezo BBQ','Aderezo Búfalo','Aderezo Mango Habanero','Aderezo Ranch','Bee Sauce','Bee Sauce Chipotle','Dip de Queso']},
 ];
 const EXTRA_NAMES = new Set(CATALOG.find(c=>c.cat==='Extras').names);
 const COMBO_NAMES = new Set(CATALOG.find(c=>c.cat==='Combos').names);
 const ALL_NAMES = CATALOG.flatMap(c=>c.names);
-const WATER = [[/horchata/,'Bee Water Horchata'],[/jamaica/,'Bee Water Jamaica'],[/maracuya/,'Bee Water Maracuyá'],[/chia/,'Bee Water Limón con Chía']];
+const WATER = [[/horchata/,'Bee Water (Horchata)'],[/jamaica/,'Bee Water (Jamaica)'],[/maracuya/,'Bee Water (Maracuyá)'],[/chia/,'Bee Water (Limón con Chía)']];
+// Piezas fijas de cada combo (del menú del comandero). Lo que el cliente elige llega como opción del pedido.
+const COMBO_FIJO = {
+  'Combo Clásico':['Supreme Bee'], 'Combo Antojo':['Supreme Bee','Papas Gajo','Dip de Queso'],
+  'Bee Crunch':['Xtreme Bee','Papas Gajo','Dip de Queso'], 'Bee Hawaiian Combo':['Hawaiian Bee','Bee’s Chicken'],
+  'Bee Double Date':['Papas Gajo'], 'Bee Pizza & Chicken':['Bee’s Chicken'],
+  'Tropical Feast':['Bee Tropical Puff','Papas Gajo','Dip de Queso'], 'Bee Cheesy Pack':['Bee Tropical Puff','Papas Gajo'],
+  'Combo Pibil Bee':['Pibil Bee','Sweet Bee Bites 8 pz'], 'Bee Duo':[], 'Combo Queen Bee':['Queen Bee']
+};
 
 const DEFAULT_DICT = {
-  'bumblebee de queso': {excel:'Bumblebee Queso', tipo:'producto'},
+  'tropical spicy': {excel:'Tropical Bee Spicy', tipo:'producto'},
+  'pizza tropical spicy': {excel:'Tropical Bee Spicy', tipo:'producto'},
+  'bee hawaiian': {excel:'Hawaiian Bee', tipo:'producto'},
   'aderezo mango habanero': {excel:'Aderezo Mango Habanero', tipo:'extra'},
   'orilla de queso': {excel:'Orilla de queso', tipo:'extra'},
   'bee sauce chipotle': {excel:'', tipo:'incluido'},
@@ -212,7 +242,7 @@ function resolve(name, dict){
   if (fl && !/\b(fuze|tea)\b/.test(k)) return {excel:fl[1], tipo:'producto', sabor:true};
   if (/\b(pepe|pp|mix)\b/.test(k)) {
     const esp = (MIX_ESP.find(([re]) => re.test(k))||[])[1];
-    return esp ? {excel:'Bee Mix Manía '+esp, tipo:'producto'} : null;
+    return esp ? {excel:'Bee Mix Manía ('+esp+')', tipo:'producto'} : null;
   }
   const kt = tokens(name);
   let best = null, bestN = 0;
@@ -388,25 +418,69 @@ function parseOrder(text, hint, dict){
 const isCombo = p => !!(p.map && COMBO_NAMES.has(p.map.excel));
 function modStatus(md, parent){
   if (!md.map) return 'nuevo';
-  if (md.map.sabor) return 'cuenta';
-  if (isCombo(parent)) return 'combo';
   if (md.map.tipo === 'incluido' || md.map.tipo === 'ignorar') return 'incluido';
+  if (isCombo(parent)) return 'combo';
   return 'cuenta';
 }
-function excelLines(order){
-  const out = []; let pending = 0;
+const esOrilla = m => !!(m && m.excel === 'Orilla de queso');
+
+/* Convierte el pedido leído al formato del comandero: [{n, qty, orilla, parts:[{n}]}].
+   Los combos llevan sus piezas fijas más lo que eligió el cliente (el Excel marca también las piezas). */
+function toItems(order){
+  const items = []; let pending = 0;
   for (const p of order.products){
     const m = p.map;
-    if (!m) pending++;
-    else if (m.tipo === 'segun-opcion') { if (!p.mods.some(md => md.map && md.map.sabor)) pending++; }
-    else if (m.tipo !== 'incluido' && m.tipo !== 'ignorar' && m.excel) out.push({excel:m.excel, qty:p.qty});
-    for (const md of p.mods){
-      const st = modStatus(md, p);
-      if (st === 'nuevo') pending++;
-      else if (st === 'cuenta' && md.map.excel) out.push({excel:md.map.excel, qty:md.qty*p.qty});
+    p.mods.forEach(md => { if (!md.map) pending++; });
+    if (!m) { pending++; continue; }
+    if (m.tipo === 'incluido' || m.tipo === 'ignorar') continue;
+    if (m.tipo === 'segun-opcion') {
+      const sabores = p.mods.filter(md => md.map && md.map.sabor);
+      if (!sabores.length) { pending++; continue; }
+      sabores.forEach(md => items.push({n: md.map.excel, qty: md.qty * p.qty}));
+      continue;
+    }
+    const orilla = p.mods.some(md => esOrilla(md.map));
+    const otros = p.mods.filter(md => md.map && !esOrilla(md.map) && md.map.tipo !== 'incluido' && md.map.tipo !== 'ignorar');
+    if (esOrilla(m)) { items.push({n:'Orilla de queso', qty:p.qty}); continue; }
+    if (isCombo(p)) {
+      const fijos = (COMBO_FIJO[m.excel] || []).slice();
+      const parts = fijos.map(n => ({n}));
+      otros.forEach(md => {
+        const i = fijos.indexOf(md.map.excel);
+        if (i >= 0) { fijos.splice(i,1); return; }      // ya viene como pieza fija
+        parts.push({n: md.qty > 1 ? md.qty + ' ' + md.map.excel : md.map.excel});
+      });
+      items.push({n: m.excel, qty: p.qty, orilla, parts});
+    } else {
+      items.push({n: m.excel, qty: p.qty, orilla});
+      otros.forEach(md => items.push({n: md.map.excel, qty: md.qty * p.qty}));
     }
   }
-  return {lines: out, pending};
+  return {items, pending};
+}
+
+// Renglones del formato REGISTRO DELIVERY (6 a 67), como aparecen en la hoja
+const RENGLONES = ['BEE CHEESY WINGS','BEE CLASSIC','BEE MEAT MANIA','BEE MEXICAN PIZZA','BEE MIX MANÍA','BEE TACO PIZZA','BEE TROPICAL PUFF','BEE VEGGIE','DOUBLE CHEESE','HAWAIIAN BEE','SUPREME BEE','TROPICAL BEE SPICY','XTREME BEE','PIZZA QUEEN BEE',
+  'BEE ANTOJO','BEE CHEESY PACK','BEE CRUNCH COMBO','BEE DOUBLE DATE','BEE HAWAIIAN COMBO','BEE PIZZA & CHICKEN','BEE TROPICAL FEAST','COMBO QUEEN BEE','COMBO BEE DUO','COMBO PIBIL BEE',
+  'BEE CHEESY BOMBS (8 PZ)','BEE CRUST','BEE CHEESY BOMBS (12 PZ)',"BEE'S CHICKEN",'BEES WINGS','BUMBLEBEE HAWAIANOS','BUMBLEBEE PEPPERONI','ORILLA EXTRA DE QUESO','PAPAS GAJO',
+  'CANELA DIPS','SWEET BEE BITES (12 PZ)','SWEET BEE BITES (8 PZ)',
+  'AGUA MINERAL 600 ML','AGUA NATURAL 600 ML','COCA COLA 2 L','COCA COLA REGULAR 600 ML','COCA COLA LIGHT 600 ML','COCA COLA ZERO 600 ML','FANTA 2 L','FANTA 600 ML','FUZE TEA DURAZNO','FUZE TEA FRUTOS ROJOS','FUZE TEA LIMÓN','SIDRAL MUNDET 2 L','SIDRAL MUNDET 600 ML','SPRITE 2 L','SPRITE 600 ML','JAMAICA 500 ML','LIMÓN CON CHÍA 500 ML','MARACUYÁ 500 ML','HORCHATA',
+  'ADEREZO BBQ','ADEREZO BÚFALO','ADEREZO MANGO HABANERO','ADEREZO RANCH','BEE SAUCE','BEE SAUCE CHIPOTLE','DIP QUESO'];
+const renglon = r => RENGLONES[r-6] || ('Renglón '+r);
+
+/* Lo que se marcará en el Excel para un pedido: [{excel, qty}] con nombres del formato, y lo que no tiene renglón. */
+function marcas(items){
+  const R = (typeof Registro !== 'undefined') ? Registro : (typeof globalThis !== 'undefined' && globalThis.Registro);
+  if (!R) return {lines: items.map(i => ({excel:i.n, qty:i.qty})), sinRenglon: []};
+  const m = R.orderMarks({items}, true);
+  const lines = [...m.rows.entries()].sort((a,b)=>a[0]-b[0]).map(([r,q]) => ({excel: renglon(r), qty: q, row: r}));
+  const sinRenglon = [...m.missing.entries()].map(([n,q]) => ({excel:n, qty:q}));
+  return {lines, sinRenglon};
+}
+function excelLines(order){
+  const t = toItems(order);
+  const m = marcas(t.items);
+  return {lines: m.lines, sinRenglon: m.sinRenglon, pending: t.pending, items: t.items};
 }
 /*PARSER-END*/
 
@@ -606,20 +680,102 @@ const store = {
   get(k, d){ try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e){ return d; } },
   set(k, v){ try { localStorage.setItem(k, JSON.stringify(v)); } catch(e){} }
 };
-const today = () => { const d = new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); };
+const pad = n => String(n).padStart(2,'0');
+const isoDia = d => d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());
+const today = () => isoDia(new Date());
 const dayName = iso => { const [y,m,d] = iso.split('-').map(Number); return new Date(y,m-1,d).toLocaleDateString('es-MX',{weekday:'long', day:'numeric', month:'long'}); };
+const hhmm = t => { const d = new Date(t); return pad(d.getHours())+':'+pad(d.getMinutes()); };
 let dict = Object.assign({}, DEFAULT_DICT, store.get('bees.dict', {}));
 let order = null, msg = '', msgKind = '', xlTab = 'Rappi', viewDay = today(), metodoCaptura = '';
 const APP = !!window.Android;
 const PLATS = ['Uber','DiDi','Rappi','Reservándonos'];
-const logKey = day => 'bees.log.'+day;
-const getLog = (day=viewDay) => store.get(logKey(day), []);
+const PKEY = {'Uber':'uber','DiDi':'didi','Rappi':'rappi','Reservándonos':'resv'};
+const PNAME = {uber:'Uber', didi:'DiDi', rappi:'Rappi', resv:'Reservándonos'};
 const esc = s => String(s??'').replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-const fmt = v => v==null ? '—' : '$'+v.toFixed(2);
+const fmt = v => v==null ? '—' : '$'+Number(v).toFixed(2);
 const orderDay = () => (order && order.date) || today();
+const idDe = (dia, platform, number) => dia+'|'+PKEY[platform]+'|'+String(number).trim();
 
+/* ---------- Registro: en la tableta (sin clave) o compartido entre las 3 (con clave) ---------- */
+const SB_URL = 'https://iwjhmdeffwhqxmcivfso.supabase.co/rest/v1/delivery_pedidos';
+const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml3amhtZGVmZndocXhtY2l2ZnNvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQwNjE0MTUsImV4cCI6MjEwOTYzNzQxNX0.b36fWyQxjLwukD8FWis7ef-uynLBoO_tYWTKubaJQbM';
+let clave = store.get('bees.clave', '');
+const SYNC = () => APP && !!clave;
+const remoto = {};            // dia -> filas de la base
+let syncInfo = {ok:null, txt:''};
+const cola = () => store.get('bees.cola', []);           // pedidos que faltan por subir
+const setCola = c => store.set('bees.cola', c);
+const logKey = day => 'bees.log.'+day;
+
+function filaAEntrada(r){
+  return {id:r.id, dia:r.dia, platform:PNAME[r.plat]||r.plat, number:r.code, client:r.cust||'', created:r.created_at,
+    time: r.created_at && isoDia(new Date(r.created_at)) === r.dia ? hhmm(r.created_at) : '',
+    items:r.items||[], lines:r.lineas||[], total:r.total, totalNote:r.total_nota||'', sum:r.suma,
+    notes: r.nota ? [r.nota] : [], tableta:r.tableta||'', pendiente:false};
+}
+function entradaAFila(e){
+  return {id:e.id, dia:e.dia, plat:PKEY[e.platform], code:e.number, cust:e.client||null, items:e.items, lineas:e.lines,
+    total:e.total, total_nota:e.totalNote||null, suma:e.sum, nota:(e.notes||[]).join(' · ')||null,
+    tableta:e.tableta||null, texto:e.texto||null, created_at:e.created};
+}
+function getLog(day=viewDay){
+  if (!SYNC()) return store.get(logKey(day), []);
+  const base = (remoto[day] || []).map(filaAEntrada);
+  const ids = new Set(base.map(e=>e.id));
+  cola().filter(e => e.dia === day && !ids.has(e.id)).forEach(e => base.push({...e, pendiente:true}));
+  return base.sort((a,b) => String(a.created).localeCompare(String(b.created)));
+}
+async function sb(method, query, body){
+  const r = await fetch(SB_URL + query, {method, headers:{apikey:SB_KEY, Authorization:'Bearer '+SB_KEY, 'x-bees-clave':clave,
+    'Content-Type':'application/json', Prefer:'return=minimal'}, body: body ? JSON.stringify(body) : undefined});
+  return r;
+}
+async function refrescar(day=viewDay){
+  if (!SYNC()) return;
+  try {
+    const r = await sb('GET', '?select=*&dia=eq.'+day+'&order=created_at.asc');
+    if (!r.ok) throw new Error('HTTP '+r.status);
+    remoto[day] = await r.json();
+    syncInfo = {ok:true, txt:'Conectado · ' + hhmm(Date.now())};
+  } catch(e) { syncInfo = {ok:false, txt:'Sin conexión: se guarda en la tableta y se sube después'}; }
+  pintarSync();
+}
+let subiendo = false;
+async function subirCola(){
+  if (!SYNC() || subiendo) return;
+  subiendo = true;
+  const yaEstaban = [];
+  try {
+    for (const e of cola()) {
+      let r;
+      try { r = await sb('POST', '', entradaAAlta(e)); } catch(err) { syncInfo = {ok:false, txt:'Sin conexión: se guarda en la tableta y se sube después'}; break; }
+      if (r.ok || r.status === 409) {
+        if (r.status === 409) yaEstaban.push(e);
+        setCola(cola().filter(x => x.id !== e.id));
+      } else if (r.status === 401 || r.status === 403) { syncInfo = {ok:false, txt:'La clave no es correcta'}; break; }
+      else { syncInfo = {ok:false, txt:'La base respondió '+r.status+'; se reintenta después'}; break; }
+    }
+  } finally { subiendo = false; }
+  if (yaEstaban.length) { msg = 'El pedido #'+yaEstaban.map(e=>e.number).join(', #')+' ya lo había registrado otra tableta.'; msgKind='bad'; }
+  await refrescar(viewDay);
+  renderOut(); renderLog(); renderXl();
+}
+const entradaAAlta = e => { const f = entradaAFila(e); if (!f.created_at) delete f.created_at; return f; };
+
+function pintarSync(){
+  if (!APP) return;
+  const el = $('syncEstado');
+  const pend = cola().length;
+  if (!clave) { el.textContent = 'Sin clave'; el.className = 'chip warn'; $('claveFila').hidden = false;
+    $('syncAyuda').textContent = 'Escribe la clave de la sucursal para que esta tableta comparta sus pedidos con las otras dos. Se pide una sola vez.'; return; }
+  $('claveFila').hidden = true;
+  el.textContent = syncInfo.ok === false ? 'Sin conexión' : 'Compartido';
+  el.className = 'chip ' + (syncInfo.ok === false ? 'bad' : 'ok');
+  $('syncAyuda').textContent = (syncInfo.txt || 'Conectando…') + (pend ? ' · '+pend+' por subir' : '') + '. Lo que registra cualquier tableta aparece aquí.';
+}
+
+/* ---------- Diccionario y chips ---------- */
 function saveDict(){ const custom = {}; for (const k in dict){ if (JSON.stringify(dict[k]) !== JSON.stringify(DEFAULT_DICT[k])) custom[k] = dict[k]; } store.set('bees.dict', custom); }
-
 function pickerHTML(key){
   let h = `<select data-learn="${esc(key)}" aria-label="Producto del Excel"><option value="">¿A qué producto corresponde?</option>`;
   for (const c of CATALOG){ h += `<optgroup label="${c.cat}">` + c.names.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('') + '</optgroup>'; }
@@ -632,22 +788,24 @@ function productChip(p){
   if (m.tipo==='segun-opcion') { const f = p.mods.find(md=>md.map && md.map.sabor); return f ? '<span class="excel">→ según su sabor</span>' : '<span class="chip warn">Falta el sabor</span>'; }
   if (m.tipo==='incluido') return '<span class="chip">Incluido · no cuenta</span>';
   if (m.tipo==='ignorar') return '<span class="chip">Ignorado</span>';
-  return `<span class="excel">→ ${esc(m.excel)}</span>${COMBO_NAMES.has(m.excel)?' <span class="chip">Combo</span>':''}`;
+  const piezas = COMBO_NAMES.has(m.excel) && COMBO_FIJO[m.excel] && COMBO_FIJO[m.excel].length ? ` <span class="hint">trae ${esc(COMBO_FIJO[m.excel].join(', '))}</span>` : '';
+  return `<span class="excel">→ ${esc(m.excel)}</span>${COMBO_NAMES.has(m.excel)?' <span class="chip">Combo</span>':''}${piezas}`;
 }
 function modChip(md, p){
   const st = modStatus(md, p);
   if (st==='nuevo') return '<span class="chip warn">Nuevo</span>';
-  if (st==='combo') return '<span class="chip">Parte del combo</span>';
+  if (st==='combo') return `<span class="excel">→ ${esc(md.map.excel)}</span> <span class="chip">Pieza del combo</span>`;
   if (st==='incluido') return '<span class="chip">Incluido · no cuenta</span>';
   return `<span class="excel">→ ${esc(md.map.excel)}</span>`;
 }
 
+/* ---------- Confirmar pedido ---------- */
 function renderOut(){
   const el = $('out');
   if (!order){ el.innerHTML = '<div class="empty">Pega el texto de un pedido o toca un ejemplo y luego «Leer pedido».</div>'; return; }
   const xl = excelLines(order);
   const day = orderDay();
-  const dup = getLog(day).some(o => o.platform===order.platform && o.number===order.number);
+  const dup = !!order.platform && !!order.number && getLog(day).some(o => o.id === idDe(day, order.platform, order.number));
   let h = '';
   for (const a of order.alerts) h += `<div class="alert">${esc(a)}</div>`;
   if (order.mixedNumbers) h += '<div class="alert">Las capturas son de pedidos distintos. Pega un pedido a la vez.</div>';
@@ -681,6 +839,7 @@ function renderOut(){
     h += '</li>';
   }
   h += '</ul>';
+  if (!xl.pending && xl.lines.length) h += `<p class="hint">En el Excel se marca: ${xl.lines.map(l=>esc(l.qty>1?l.qty+' '+l.excel:l.excel)).join(' · ')}${xl.sinRenglon.length?`. Sin renglón en el formato: ${xl.sinRenglon.map(l=>esc(l.excel)).join(', ')}`:''}</p>`;
   h += `<div class="totals">
     <div><span>Suma de productos</span><span>${fmt(order.sum)}</span></div>
     <div><strong>Total${order.totalNote?` <span class="hint">(${esc(order.totalNote)})</span>`:''}</strong><strong>${fmt(order.total)}</strong></div>
@@ -713,50 +872,96 @@ function reread(keepMeta){
 function register(){
   const xl = excelLines(order);
   const day = orderDay();
-  const log = getLog(day);
-  if (log.some(o=>o.platform===order.platform && o.number===order.number)){ msg='Este pedido ya está en el registro.'; msgKind='bad'; renderOut(); return; }
-  const t = new Date();
-  log.push({platform:order.platform, number:order.number, client:order.client,
-    time: order.date && order.date !== today() ? '' : String(t.getHours()).padStart(2,'0')+':'+String(t.getMinutes()).padStart(2,'0'),
-    lines:xl.lines, total:order.total, sum:order.sum, totalNote:order.totalNote, alerts:order.alerts,
-    notes:[...order.orderNotes, ...order.products.flatMap(p=>p.notes)]});
-  store.set(logKey(day), log);
+  const id = idDe(day, order.platform, order.number);
+  if (getLog(day).some(o => o.id === id)){ msg='Este pedido ya está en el registro.'; msgKind='bad'; renderOut(); return; }
+  const now = new Date();
+  const entrada = {id, dia:day, platform:order.platform, number:order.number, client:order.client||'',
+    created: now.toISOString(), time: day === today() ? hhmm(now) : '',
+    items: xl.items, lines: xl.lines.map(l=>({excel:l.excel, qty:l.qty})), total:order.total, totalNote:order.totalNote, sum:order.sum,
+    alerts: order.alerts, notes:[...order.orderNotes, ...order.products.flatMap(p=>p.notes), ...order.alerts],
+    tableta: order.platform, texto: $('src').value.slice(0, 8000)};
+  if (SYNC()) { setCola([...cola(), entrada]); subirCola(); }
+  else { const log = store.get(logKey(day), []); log.push(entrada); store.set(logKey(day), log); }
   msg = APP ? 'Registrado. Ya puedes volver al pedido.' : 'Registrado.'; msgKind='ok';
   xlTab = order.platform; viewDay = day; $('logDay').value = day;
   renderOut(); renderLog(); renderXl();
 }
 
+/* ---------- Registro del día ---------- */
 function renderLog(){
   const log = getLog(); const el = $('log');
-  if (!log.length){ el.innerHTML = `<div class="empty">No hay pedidos registrados el ${esc(dayName(viewDay))}. Al confirmar uno, aparece aquí.</div>`; return; }
-  let h = '<div class="tablewrap"><table><thead><tr><th>Hora</th><th>Plataforma</th><th>Pedido</th><th>Productos para el Excel</th><th>Total</th><th></th></tr></thead><tbody>';
-  log.slice().reverse().forEach((o,ri) => {
-    const i = log.length-1-ri;
-    h += `<tr><td>${esc(o.time)||'<span class="hint">sin hora</span>'}</td><td>${esc(o.platform)}</td><td>#${esc(o.number)}${o.client?`<div class="hint">${esc(o.client)}</div>`:''}${o.alerts&&o.alerts.length?' <span class="chip bad">Aviso</span>':''}</td>
-      <td>${o.lines.map(l=>`${l.qty} ${esc(l.excel)}`).join('<br>')||'<span class="hint">Nada que contar</span>'}${o.notes&&o.notes.length?`<div class="note">${esc(o.notes.join(' · '))}</div>`:''}</td>
-      <td class="n">${fmt(o.total)}</td><td><button class="small ghost" data-del="${i}" aria-label="Quitar pedido ${esc(o.number)}">Quitar</button></td></tr>`;
+  $('btnResetDay').hidden = SYNC();
+  if (!log.length){ el.innerHTML = `<div class="empty">No hay pedidos registrados el ${esc(dayName(viewDay))}. Al confirmar uno, aparece aquí${SYNC()?', venga de la tableta que venga':''}.</div>`; return; }
+  let h = '<div class="tablewrap"><table><thead><tr><th>Hora</th><th>Plataforma</th><th>Pedido</th><th>Se marca en el Excel</th><th>Total</th><th></th></tr></thead><tbody>';
+  log.slice().reverse().forEach(o => {
+    h += `<tr><td>${esc(o.time)||'<span class="hint">sin hora</span>'}${o.pendiente?'<div><span class="chip warn">Por subir</span></div>':''}</td><td>${esc(o.platform)}</td><td>#${esc(o.number)}${o.client?`<div class="hint">${esc(o.client)}</div>`:''}</td>
+      <td>${(o.lines||[]).map(l=>`${l.qty} ${esc(l.excel)}`).join('<br>')||'<span class="hint">Nada que contar</span>'}${o.notes&&o.notes.length?`<div class="note">${esc(o.notes.join(' · '))}</div>`:''}</td>
+      <td class="n">${fmt(o.total)}${o.totalNote?`<div class="hint">${esc(o.totalNote)}</div>`:''}</td><td><button class="small ghost" data-del="${esc(o.id)}" aria-label="Quitar pedido ${esc(o.number)}">Quitar</button></td></tr>`;
   });
   h += '</tbody></table></div>';
   el.innerHTML = h;
-  el.querySelectorAll('[data-del]').forEach(b => b.onclick = () => { const lg = getLog(); lg.splice(+b.dataset.del,1); store.set(logKey(viewDay), lg); renderLog(); renderXl(); renderOut(); });
+  el.querySelectorAll('[data-del]').forEach(b => b.onclick = () => pedirQuitar(b.dataset.del));
+}
+let porQuitar = null;
+function pedirQuitar(id){
+  if (porQuitar !== id) { porQuitar = id; const b = document.querySelector(`[data-del="${CSS.escape(id)}"]`); if (b) { b.textContent = '¿Seguro? Toca otra vez'; b.classList.add('primary'); } return; }
+  porQuitar = null; quitar(id);
+}
+async function quitar(id){
+  if (SYNC()) {
+    setCola(cola().filter(e => e.id !== id));
+    try { await sb('DELETE', '?id=eq.'+encodeURIComponent(id)); } catch(e) {}
+    await refrescar(viewDay);
+  } else {
+    store.set(logKey(viewDay), store.get(logKey(viewDay), []).filter(e => e.id !== id));
+  }
+  renderLog(); renderXl(); renderOut();
 }
 
+/* ---------- Para el Excel ---------- */
 function counts(platform){
   const m = new Map();
-  for (const o of getLog()) if (o.platform===platform) for (const l of o.lines) m.set(l.excel, (m.get(l.excel)||0)+l.qty);
-  return [...m.entries()].sort((a,b)=>ALL_NAMES.indexOf(a[0])-ALL_NAMES.indexOf(b[0]));
+  for (const o of getLog()) if (o.platform===platform) for (const l of (o.lines||[])) m.set(l.excel, (m.get(l.excel)||0)+l.qty);
+  return [...m.entries()].sort((a,b)=>RENGLONES.indexOf(a[0])-RENGLONES.indexOf(b[0]));
 }
-
 function renderXl(){
   const log = getLog();
   $('xlTabs').innerHTML = PLATS.map(p => { const n = log.filter(o=>o.platform===p).length; return `<button class="small" aria-pressed="${p===xlTab}" data-tab="${p}">${p} · ${n}</button>`; }).join('');
   $('xlTabs').querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { xlTab = b.dataset.tab; renderXl(); });
   const c = counts(xlTab);
   $('xl').innerHTML = c.length
-    ? `<div class="tablewrap"><table><thead><tr><th>Producto del Excel</th><th style="text-align:right">Cantidad</th></tr></thead><tbody>${c.map(([n,q])=>`<tr><td>${esc(n)}</td><td class="n">${q}</td></tr>`).join('')}</tbody></table></div>`
+    ? `<div class="tablewrap"><table><thead><tr><th>Renglón del Excel (pestaña ${esc(xlTab.toUpperCase())})</th><th style="text-align:right">Marcas</th></tr></thead><tbody>${c.map(([n,q])=>`<tr><td>${esc(n)}</td><td class="n">${q}</td></tr>`).join('')}</tbody></table></div>`
     : `<div class="empty">Sin pedidos de ${esc(xlTab)} el ${esc(dayName(viewDay))}. Lo que registres se suma aquí, listo para la pestaña de ${esc(xlTab)}.</div>`;
 }
+function textoConteo(){
+  const c = counts(xlTab);
+  return `${xlTab} · ${viewDay}\n` + (c.length ? c.map(([n,q])=>`${q} ${n}`).join('\n') : 'Sin pedidos');
+}
+function aBase64(bytes){ let s = ''; for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000)); return btoa(s); }
+async function descargarExcel(){
+  const out = $('xlMsg'), rep = $('xlReporte');
+  out.textContent = 'Armando el Excel…'; out.className = 'msg';
+  try {
+    if (SYNC()) { await subirCola(); await refrescar(viewDay); }
+    const log = getLog().filter(e => PKEY[e.platform] && PKEY[e.platform] !== 'resv');
+    const orders = log.map(e => ({plat:PKEY[e.platform], code:e.number, cust:e.client, items:e.items||[], status:'registrado',
+      createdAt: e.created ? Date.parse(e.created) : Date.now(),
+      note: [e.total!=null ? 'Total '+fmt(e.total)+(e.totalNote?' ('+e.totalNote+')':'') : '', ...(e.notes||[])].filter(Boolean).join(' · ')}));
+    const {bytes, report} = await Registro.buildXlsx(JSZip, window.TEMPLATE_B64, orders, viewDay, {markParts:true, lateMin:10, fmt:hhmm});
+    const nombre = 'REGISTRO_DELIVERY_' + viewDay + '.xlsx';
+    const res = window.Android.guardarExcel(nombre, aBase64(bytes));
+    out.textContent = res || ('Listo: ' + nombre); out.className = 'msg ok';
+    const p = report.plat;
+    let r = `Uber ${p.uber.orders} pedidos · DiDi ${p.didi.orders} · Rappi ${p.rappi.orders} · ${report.total} marcas en total.`;
+    if (report.missing.length) r += ' Sin renglón en el formato (no se marcaron): ' + report.missing.map(m => m.qty+' '+m.name).join(', ') + '.';
+    if (report.overflow.length) r += ' Hubo más de 50 marcas en un renglón; se juntaron en formato compacto.';
+    rep.textContent = r; rep.hidden = false;
+  } catch(e) {
+    out.textContent = 'No se pudo armar el Excel: ' + (e && e.message || e); out.className = 'msg bad';
+  }
+}
 
+/* ---------- Diccionario ---------- */
 function renderDict(){
   const keys = Object.keys(dict).sort();
   $('dict').innerHTML = `<div class="tablewrap"><table><thead><tr><th>Como lo escribe la plataforma</th><th>En el Excel</th><th></th></tr></thead><tbody>${keys.map(k=>{
@@ -765,18 +970,19 @@ function renderDict(){
   $('dict').querySelectorAll('[data-forget]').forEach(b => b.onclick = () => { delete dict[b.dataset.forget]; saveDict(); renderDict(); if (order) reread(true); });
 }
 
+/* ---------- Eventos ---------- */
 $('samples').innerHTML = SAMPLES.map(s => `<button class="small ghost" data-sample="${s.id}">${esc(s.label)}</button>`).join('');
-document.querySelectorAll('[data-sample]').forEach(b => b.onclick = () => { $('src').value = SAMPLES.find(s=>s.id===b.dataset.sample).text; $('platform').value=''; order=null; reread(false); });
+document.querySelectorAll('[data-sample]').forEach(b => b.onclick = () => { $('src').value = SAMPLES.find(s=>s.id===b.dataset.sample).text; $('platform').value=''; metodoCaptura=''; order=null; reread(false); });
 $('btnRead').onclick = () => { order=null; reread(false); };
 $('btnClear').onclick = () => { $('src').value=''; order=null; msg=''; renderOut(); };
 $('platform').onchange = () => { if (order){ order.platform = $('platform').value || detectPlatform($('src').value); renderOut(); } };
 $('logDay').value = viewDay;
-$('logDay').onchange = e => { viewDay = e.target.value || today(); renderLog(); renderXl(); };
+$('logDay').onchange = async e => { viewDay = e.target.value || today(); renderLog(); renderXl(); await refrescar(viewDay); renderLog(); renderXl(); };
 $('btnResetDay').onclick = () => { $('resetConfirm').hidden = false; };
 $('btnResetNo').onclick = () => { $('resetConfirm').hidden = true; };
 $('btnResetYes').onclick = () => { store.set(logKey(viewDay), []); $('resetConfirm').hidden = true; renderLog(); renderXl(); renderOut(); };
 $('btnCopyXl').onclick = () => {
-  const c = counts(xlTab); const txt = `${xlTab} · ${viewDay}\n` + (c.length ? c.map(([n,q])=>`${q} ${n}`).join('\n') : 'Sin pedidos');
+  const txt = textoConteo();
   const done = ok => { $('xlMsg').textContent = ok ? 'Copiado.' : 'No se pudo copiar; selecciona la tabla a mano.'; $('xlMsg').className = 'msg '+(ok?'ok':'bad'); };
   if (APP) { try { window.Android.copiar(txt); done(true); } catch(e){ done(false); } return; }
   try { navigator.clipboard.writeText(txt).then(()=>done(true), ()=>done(false)); } catch(e){ done(false); }
@@ -791,6 +997,7 @@ window.cargarCaptura = (texto, plataforma, metodo) => {
   if (order && order.platform) xlTab = order.platform;
   renderXl();
   $('t-out').scrollIntoView({behavior:'smooth', block:'start'});
+  if (SYNC()) refrescar(orderDay()).then(() => { renderOut(); });
 };
 window.actualizarEstado = () => {
   if (!APP) return;
@@ -803,16 +1010,47 @@ window.actualizarEstado = () => {
   $('appAyuda').textContent = activo
     ? 'El botón Capturar está encima de la app de pedidos. Abre un pedido y tócalo. Puedes moverlo arrastrándolo.'
     : 'Abre los ajustes de accesibilidad, entra a «Bee\'s Captura» y actívalo.' + ((e.android||0) >= 33 ? ' Si Android no te deja, toca «Permitir ajustes restringidos», luego los tres puntos arriba a la derecha y «Permitir ajustes restringidos», y vuelve a intentar.' : '');
+  if (SYNC()) subirCola();
 };
 if (APP) {
   $('appPanel').hidden = false;
+  $('btnExcel').hidden = false;
+  $('btnExcel').onclick = descargarExcel;
   $('btnAcc').onclick = () => window.Android.abrirAccesibilidad();
   $('btnInfo').onclick = () => window.Android.abrirInfoApp();
+  $('btnClave').onclick = async () => {
+    const v = $('claveInput').value.trim().toUpperCase();
+    if (!v) return;
+    const anterior = clave; clave = v;
+    try {
+      const r = await sb('GET', '?select=id&limit=1');
+      if (!r.ok) throw new Error();
+      // Con la clave correcta se ve la base; con una incorrecta la base se ve vacía. Se prueba escribiendo y borrando una marca.
+      const prueba = {id:'prueba|'+Date.now(), dia:today(), plat:'resv', code:'prueba', items:[]};
+      const w = await sb('POST', '', prueba);
+      if (!w.ok) throw new Error();
+      await sb('DELETE', '?id=eq.'+encodeURIComponent(prueba.id));
+      store.set('bees.clave', clave);
+      // Lo que ya estaba registrado solo en esta tableta se sube
+      const locales = Object.keys(localStorage).filter(k => k.startsWith('bees.log.')).flatMap(k => store.get(k, []).filter(e => e.id && e.items));
+      if (locales.length) setCola([...cola(), ...locales.filter(e => !cola().some(c => c.id === e.id))]);
+      syncInfo = {ok:true, txt:'Clave guardada'};
+      await subirCola();
+    } catch(e) {
+      clave = anterior;
+      syncInfo = {ok:false, txt:'Esa clave no funciona o no hay internet. Revisa y vuelve a intentar.'};
+      $('syncAyuda').textContent = syncInfo.txt; $('syncEstado').textContent = 'Sin clave'; $('syncEstado').className = 'chip bad';
+      return;
+    }
+    pintarSync(); renderLog(); renderXl();
+  };
   const bs = document.createElement('button');
   bs.className = 'small'; bs.id = 'btnShareXl'; bs.textContent = 'Compartir conteo';
-  bs.onclick = () => { const c = counts(xlTab); window.Android.compartir(`${xlTab} · ${viewDay}\n` + (c.length ? c.map(([n,q])=>`${q} ${n}`).join('\n') : 'Sin pedidos')); };
+  bs.onclick = () => window.Android.compartir(textoConteo());
   $('btnCopyXl').after(bs);
   actualizarEstado();
+  pintarSync();
+  if (SYNC()) { refrescar(viewDay).then(() => { renderLog(); renderXl(); subirCola(); }); setInterval(() => { subirCola(); }, 60000); }
 }
 $('dayLabel').textContent = dayName(today()) + ' · el día cambia a las 00:00';
 $('src').value = SAMPLES.find(s=>s.id==='r5').text; reread(false);
