@@ -174,6 +174,10 @@ pre.corte{margin:12px 0 0;white-space:pre-wrap;font:14px/1.6 ui-monospace,Menlo,
 .panel h2{margin:0;font:800 26px/1.1 var(--display)}
 .toast{position:fixed;left:50%;top:calc(76px + env(safe-area-inset-top));transform:translateX(-50%);z-index:50;background:var(--ok);color:#fff;border-radius:14px;padding:12px 18px;font-weight:700;box-shadow:0 12px 30px -10px rgba(0,0,0,.4);animation:entra .3s both;max-width:calc(100% - 32px)}
 .toast.bad{background:var(--bad)}
+.nueva{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:12px max(20px,env(safe-area-inset-right)) 0 max(20px,env(safe-area-inset-left));padding:12px 16px;border-radius:16px;background:var(--ink);color:#fff;animation:entra .3s both}
+.nueva .hex{width:22px;height:25px;background:var(--honey);flex:none}
+.nueva b{font-size:17px}.nueva span{color:#d9d1bd;flex:1;min-width:180px}
+.nueva .btn{background:var(--honey);color:var(--ink);border:0}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 </style>
 </head>
@@ -188,6 +192,13 @@ pre.corte{margin:12px 0 0;white-space:pre-wrap;font:14px/1.6 ui-monospace,Menlo,
     <svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.7 1.7 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.8-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1.1-1.5 1.7 1.7 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.8 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.5-1.1 1.7 1.7 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.8.3H9a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.8V9a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z"></path></svg>
   </button>
 </header>
+
+<div class="nueva" id="nueva" role="status" hidden>
+  <div class="hex" aria-hidden="true"></div>
+  <b id="nuevaTit">Hay una versión nueva</b>
+  <span id="nuevaTxt">Se descarga y Android te pide confirmar con «Instalar».</span>
+  <button class="btn small" id="nuevaBtn" type="button">Actualizar</button>
+</div>
 
 <main>
   <section id="vConfirmar" class="vista" aria-label="Confirmar pedido"></section>

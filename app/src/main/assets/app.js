@@ -448,6 +448,27 @@ async function descargarExcel(){
   } catch(e) { $('xMsg').textContent = 'No se pudo armar el Excel: ' + (e && e.message || e); aviso('No se pudo armar el Excel', true); }
 }
 
+/* ---------- Actualizaciones (las avisa la app) ---------- */
+let versionNueva = null;
+window.avisoVersion = v => {
+  let est = {}; try { est = JSON.parse(window.Android.estado()); } catch(e) {}
+  if (!v || !est.code || !(v.versionCode > est.code)) { $('nueva').hidden = true; versionNueva = null; return; }
+  versionNueva = v;
+  $('nuevaTit').textContent = 'Hay una versión nueva: ' + (v.versionName || v.versionCode);
+  if (!$('nuevaBtn').disabled) $('nuevaTxt').textContent = 'Se descarga y Android te pide confirmar con «Instalar». No se pierde nada de lo registrado.';
+  $('nueva').hidden = false;
+};
+window.progresoVersion = p => {
+  const t = $('nuevaTxt'), b = $('nuevaBtn');
+  if (p === 'permiso') { t.textContent = 'Activa «Permitir de esta fuente» para Bee\'s Captura, regresa y vuelve a tocar Actualizar.'; b.disabled = false; return; }
+  if (p === 'instalar') { t.textContent = 'Listo. Toca «Instalar» en la ventana de Android.'; b.disabled = false; b.textContent = 'Volver a intentar'; return; }
+  if (p === 'error') { t.textContent = 'No se pudo descargar. Revisa el internet y vuelve a intentar.'; b.disabled = false; b.textContent = 'Volver a intentar'; return; }
+  t.textContent = 'Descargando… ' + (p >= 0 ? p + '%' : ''); b.disabled = true;
+};
+$('nuevaBtn').onclick = () => { if (!APP || !window.Android.actualizarApk) return; $('nuevaBtn').disabled = true; $('nuevaTxt').textContent = 'Preparando la descarga…'; window.Android.actualizarApk(); };
+// La app pregunta antes de aplicar una pantalla nueva: no a media confirmación
+window.puedeRecargar = () => estadoConf === 'vacio' && $('ajustes').hidden;
+
 /* ---------- Ajustes ---------- */
 function abrirAjustes(){ $('ajustes').hidden = false; pintarAjustes(); }
 $('btnAjustes').onclick = abrirAjustes;
@@ -469,7 +490,7 @@ function pintarAjustes(){
   $('ajDict').innerHTML = keys.length ? '<div class="tw"><table><tbody>' + keys.map(k => { const d = dict[k];
     return `<tr><td>${esc(k)}</td><td>${esc(d.tipo === 'incluido' ? 'Incluido' : d.tipo === 'ignorar' ? 'Ignorar' : d.excel)}</td><td class="n"><button class="btn small ghost" type="button" data-olvidar="${esc(k)}">Olvidar</button></td></tr>`; }).join('') + '</tbody></table></div>' : '<p class="hint" style="margin:0">Todavía no hay.</p>';
   $('ajDict').querySelectorAll('[data-olvidar]').forEach(b => b.onclick = () => { delete dict[b.dataset.olvidar]; saveDict(); pintarAjustes(); });
-  $('ajVersion').textContent = 'Versión ' + (est.version || 'web');
+  $('ajVersion').textContent = 'Versión ' + (est.version || 'web') + (est.web ? ' · lector ' + est.web : '') + '. Se actualiza sola cuando hay internet.';
 }
 $('ajAcc').onclick = () => window.Android.abrirAccesibilidad();
 $('ajInfo').onclick = () => window.Android.abrirInfoApp();

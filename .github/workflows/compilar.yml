@@ -38,7 +38,18 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           cp app/build/outputs/apk/debug/app-debug.apk BeesCaptura.apk
+          # Para que las tabletas se actualicen solas: versión publicada y la pantalla/lector en un zip
+          python3 - <<'PY'
+          import json, re
+          g = open('app/build.gradle').read()
+          w = json.load(open('app/src/main/assets/web.json'))
+          w['versionCode'] = int(re.search(r'versionCode (\d+)', g).group(1))
+          w['versionName'] = re.search(r"versionName '([^']+)'", g).group(1)
+          json.dump(w, open('version.json', 'w'))
+          print(w)
+          PY
+          (cd app/src/main/assets && zip -r -q ../../../../web.zip . -x lector.html)
           gh release delete ultima --yes --cleanup-tag || true
-          gh release create ultima BeesCaptura.apk --latest \
+          gh release create ultima BeesCaptura.apk version.json web.zip --latest \
             --title "Bee's Captura (última versión)" \
             --notes "Compilación ${{ github.run_number }}. Abre este enlace en la tableta para instalar o actualizar."

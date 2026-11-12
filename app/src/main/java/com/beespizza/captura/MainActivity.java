@@ -20,6 +20,7 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.OutputStream;
 import android.webkit.JavascriptInterface;
+import androidx.core.content.FileProvider;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -35,6 +36,10 @@ public class MainActivity extends Activity {
     private WebView web;
     private boolean cargada = false;
     private String pendiente = null;
+    private boolean usandoDescargada = false;
+    private boolean recargaPendiente = false;
+    private long ultimaRevision = 0;
+    private String infoVersion = null;   // version.json publicado, para el aviso de APK nuevo
 
     @Override
     protected void onCreate(Bundle b) {
@@ -51,13 +56,21 @@ public class MainActivity extends Activity {
             @Override
             public void onPageFinished(WebView v, String url) {
                 cargada = true;
+                if (usandoDescargada) {
+                    // Si la pantalla descargada no arrancó bien, se vuelve a la que trae la app
+                    web.evaluateJavascript("typeof window.cargarCaptura", r -> {
+                        if (!"\"function\"".equals(r)) { Actualizador.descartarWeb(MainActivity.this); cargarPantalla(); }
+                    });
+                }
                 if (pendiente != null) { web.evaluateJavascript(pendiente, null); pendiente = null; }
                 actualizarEstado();
+                avisarVersion();
             }
         });
-        web.loadUrl("file:///android_asset/app.html");
+        cargarPantalla();
         setContentView(web);
         manejar(getIntent());
+        revisarActualizacion();
     }
 
     @Override
@@ -71,7 +84,40 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         actualizarEstado();
+        if (recargaPendiente) recargarSiPuede();
+        if (System.currentTimeMillis() - ultimaRevision > 20 * 60 * 1000) revisarActualizacion();
     }
+
+    private void cargarPantalla() {
+        String url = Actualizador.urlPantalla(this);
+        usandoDescargada = !url.startsWith("file:///android_asset/");
+        cargada = false;
+        web.loadUrl(url);
+    }
+
+    private void revisarActualizacion() {
+        ultimaRevision = System.currentTimeMillis();
+        Actualizador.revisar(this, (v, webNueva) -> runOnUiThread(() -> {
+            infoVersion = v.toString();
+            if (webNueva) { recargaPendiente = true; recargarSiPuede(); }
+            avisarVersion();
+        }));
+    }
+
+    /** Aplica la pantalla nueva solo si no hay un pedido a medio confirmar. */
+    private void recargarSiPuede() {
+        if (!cargada) return;
+        web.evaluateJavascript("window.puedeRecargar ? puedeRecargar() : true", r -> {
+            if ("true".equals(r)) { recargaPendiente = false; cargarPantalla(); }
+        });
+    }
+
+    private void avisarVersion() {
+        if (cargada && infoVersion != null)
+            web.evaluateJavascript("window.avisoVersion && avisoVersion(" + infoVersion + ")", null);
+    }
+
+    private void js(String codigo) { runOnUiThread(() -> { if (cargada) web.evaluateJavascript(codigo, null); }); }
 
     private void actualizarEstado() {
         if (cargada) web.evaluateJavascript("window.actualizarEstado && actualizarEstado()", null);
@@ -99,6 +145,8 @@ public class MainActivity extends Activity {
                 o.put("lectura", CapturaService.instancia != null);
                 o.put("android", Build.VERSION.SDK_INT);
                 o.put("version", BuildConfigInfo.VERSION);
+                o.put("code", BuildConfigInfo.CODE);
+                o.put("web", Actualizador.webActiva(MainActivity.this));
                 return o.toString();
             } catch (Exception e) {
                 return "{}";
@@ -122,6 +170,31 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public void registrado(String mensaje) {
             if (CapturaService.instancia != null) CapturaService.instancia.marcarRegistrado(mensaje);
+        }
+
+        /** Descarga el APK nuevo y abre el instalador de Android. */
+        @JavascriptInterface
+        public void actualizarApk() {
+            if (Build.VERSION.SDK_INT >= 26 && !getPackageManager().canRequestPackageInstalls()) {
+                js("window.progresoVersion && progresoVersion('permiso')");
+                Intent i = new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:" + getPackageName()));
+                i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                startActivity(i);
+                return;
+            }
+            new Thread(() -> {
+                try {
+                    java.io.File f = Actualizador.bajarApk(MainActivity.this, pct -> js("window.progresoVersion && progresoVersion(" + pct + ")"));
+                    js("window.progresoVersion && progresoVersion('instalar')");
+                    Uri uri = FileProvider.getUriForFile(MainActivity.this, getPackageName() + ".archivos", f);
+                    Intent i = new Intent(Intent.ACTION_VIEW);
+                    i.setDataAndType(uri, "application/vnd.android.package-archive");
+                    i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
+                    startActivity(i);
+                } catch (Exception e) {
+                    js("window.progresoVersion && progresoVersion('error')");
+                }
+            }).start();
         }
 
         @JavascriptInterface
