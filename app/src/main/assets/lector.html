@@ -188,6 +188,15 @@ details summary{cursor:pointer;font-family:var(--display);font-weight:600;font-s
     <div id="con"></div>
   </section>
 
+  <section class="panel" aria-labelledby="t-corte">
+    <div class="row" style="justify-content:space-between">
+      <h2 id="t-corte">Corte del día</h2>
+      <button class="small" id="btnCopyCorte">Copiar para el corte</button>
+    </div>
+    <p class="hint">Al cierre, abre en cada tableta el resumen de ventas del día de la app y toca Capturar. Aquí se junta lo de las tres.</p>
+    <div id="corte"></div>
+  </section>
+
   <details class="panel">
     <summary>Diccionario de productos</summary>
     <p class="hint">Cada línea traduce un nombre como lo escribe la plataforma al producto del Excel. Lo que eliges al confirmar un producto desconocido se guarda aquí. Los nombres del Excel son provisionales hasta tener el archivo completo.</p>
@@ -492,6 +501,100 @@ function marcas(items){
   const sinRenglon = [...m.missing.entries()].map(([n,q]) => ({excel:n, qty:q}));
   return {lines, sinRenglon};
 }
+/* ---------- Resumen de ventas del día (para el corte) ----------
+   Rappi: «Resumen de ventas» → Total con descuentos. DiDi: «Historial» → Ventas. Uber: «Historial de pedidos» → Ventas. */
+const COMISION = {didi:56.53, uber:58.42, rappi:47.73};
+const MESES_AB = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+const pad2 = n => String(n).padStart(2,'0');
+function fechaResumen(lines){
+  for (const l of lines){
+    let m = l.match(/\b(\d{1,2})\/(\d{1,2})\/(\d{4})\b/);
+    if (m) return m[3]+'-'+pad2(m[2])+'-'+pad2(m[1]);
+    m = norm(l).match(/\b(\d{1,2}) (?:de )?(ene|feb|mar|abr|may|jun|jul|ago|sep|oct|nov|dic)[a-z]* (?:de )?(\d{4})\b/);
+    if (m) return m[3]+'-'+pad2(MESES_AB.indexOf(m[2])+1)+'-'+pad2(m[1]);
+  }
+  return '';
+}
+const dineroEn = l => { const m = String(l).match(/(?:MXN\s*|MX)?\$\s*([\d,]+(?:\.\d{1,2})?)|\b([\d,]+\.\d{2})\b/); return m ? parseFloat((m[1]||m[2]).replace(/,/g,'')) : null; };
+/* Todos los valores que siguen a una etiqueta (en la misma línea o en las 3 siguientes). */
+function valores(lines, re, tipo){
+  const out = [];
+  for (let i=0;i<lines.length;i++){
+    if (!re.test(lines[i])) continue;
+    const resto = lines[i].replace(re,'');
+    let v = tipo === 'dinero' ? dineroEn(resto) : ((resto.match(/^\D*?(\d+)\s*$/)||[])[1] ?? null);
+    for (let j=i+1; v == null && j < Math.min(lines.length, i+4); j++){
+      if (tipo === 'dinero') v = dineroEn(lines[j]);
+      else if (/^\d+$/.test(lines[j])) v = lines[j];
+    }
+    if (v != null) out.push(tipo === 'entero' ? parseInt(v,10) : v);
+  }
+  return out;
+}
+const hora12 = l => { const m = String(l).match(/(\d{1,2}):(\d{2})\s*([ap])\.?\s*m/i); if (!m) return ''; let h = +m[1] % 12; if (/p/i.test(m[3])) h += 12; return pad2(h)+':'+m[2]; };
+
+function parseResumen(text, hint){
+  const lines = String(text).split(/\r?\n/).map(s=>s.replace(/\s+/g,' ').trim()).filter(l => l && !/^-{3,}/.test(l));
+  const t = lines.join('\n');
+  let plat = '';
+  if (/resumen de ventas|[oó]rdenes finalizadas|total con descuentos/i.test(t)) plat = 'rappi';
+  else if (/historial de pedidos/i.test(t) && /entrega en curso|completado|calificaci|ventas/i.test(t)) plat = 'uber';
+  else if (/historial/i.test(t) && /ventas sin descuentos|n[uú]mero de recolec|ganancias estimadas|pedido aceptado/i.test(t)) plat = 'didi';
+  if (!plat) return null;
+  if (hint && {Uber:'uber',DiDi:'didi',Rappi:'rappi'}[hint] && {Uber:'uber',DiDi:'didi',Rappi:'rappi'}[hint] !== plat) plat = {Uber:'uber',DiDi:'didi',Rappi:'rappi'}[hint];
+  const r = {resumen:true, plat, dia: fechaResumen(lines), pedidos:null, cancelados:null, total:null, totalNota:'', lista:[], extra:{}};
+  if (plat === 'rappi') {
+    // Dos columnas (finalizadas y canceladas): la de finalizadas es la mayor
+    const ords = valores(lines, /^[oó]rdenes(?!\s*(finalizadas|canceladas))\b:?/i, 'entero');
+    const tcd = valores(lines, /^total con descuentos\b/i, 'dinero');
+    if (ords.length) { r.pedidos = Math.max(...ords); if (ords.length > 1) r.cancelados = Math.min(...ords); }
+    if (tcd.length) r.total = Math.max(...tcd);
+    r.totalNota = 'Total con descuentos';
+    const acu = valores(lines, /^total acumulado\b/i, 'dinero'), tr = valores(lines, /^total restaurante\b/i, 'dinero');
+    const dr = valores(lines, /^total descuento restaurante\b/i, 'dinero'), dp = valores(lines, /^total descuento rappi\b/i, 'dinero');
+    if (acu.length) r.extra.total_acumulado = Math.max(...acu);
+    if (dr.length) r.extra.descuento_restaurante = Math.max(...dr);
+    if (tr.length) r.extra.total_restaurante = Math.max(...tr);
+    if (dp.length) r.extra.descuento_rappi = Math.max(...dp);
+  }
+  if (plat === 'didi') {
+    const ped = valores(lines, /^pedidos\b:?/i, 'entero'); if (ped.length) r.pedidos = ped[0];
+    const ven = valores(lines, /^ventas(?!\s*sin)\b\s*[ⓘⓘ(i)]*/i, 'dinero'); if (ven.length) r.total = ven[0];
+    const sd = valores(lines, /^ventas sin descuentos\b\s*[ⓘ(i)]*/i, 'dinero'); if (sd.length) r.extra.ventas_sin_descuentos = sd[0];
+    r.totalNota = 'Ventas';
+    for (let i=0;i<lines.length;i++){
+      const m = lines[i].match(/^#\s?(\d{1,5})$/); if (!m) continue;
+      const fila = {code:m[1], monto:null, ganancia:null, hora:'', estado:''};
+      for (let j=i+1; j<lines.length && j<=i+8 && !/^#\s?\d/.test(lines[j]); j++){
+        const d = dineroEn(lines[j]);
+        if (d != null) { if (fila.monto == null) fila.monto = d; else if (fila.ganancia == null) fila.ganancia = d; }
+        if (!fila.hora && hora12(lines[j])) fila.hora = hora12(lines[j]);
+        if (/completado|cancelado|reembols/i.test(lines[j])) fila.estado = (lines[j].match(/completado|cancelado|reembols\w*/i)||[''])[0];
+      }
+      if (!r.lista.some(x => x.code === fila.code)) r.lista.push(fila);
+    }
+  }
+  if (plat === 'uber') {
+    const ven = valores(lines, /^ventas\b/i, 'dinero'); if (ven.length) r.total = ven[0];
+    const ped = valores(lines, /^pedidos\b/i, 'entero'); if (ped.length) r.pedidos = ped[0];
+    r.totalNota = 'Ventas';
+    for (let i=0;i<lines.length;i++){
+      if (!/^[A-Z0-9]{5}$/.test(lines[i]) || !/\d/.test(lines[i])) continue;
+      const fila = {code:lines[i], cliente: lines[i-1] && !/\d/.test(lines[i-1]) ? lines[i-1] : '', monto:null, hora:'', estado:''};
+      for (let j=i+1; j<lines.length && j<=i+6 && !/^[A-Z0-9]{5}$/.test(lines[j]); j++){
+        const d = /MXN|\$/.test(lines[j]) ? dineroEn(lines[j]) : null;
+        if (d != null && fila.monto == null) fila.monto = d;
+        if (!fila.hora && hora12(lines[j])) fila.hora = hora12(lines[j]);
+        if (/entregado|cancelado|reembols/i.test(lines[j])) fila.estado = (lines[j].match(/entregado|cancelado|reembols\w*/i)||[''])[0];
+      }
+      if (!r.lista.some(x => x.code === fila.code)) r.lista.push(fila);
+    }
+  }
+  if (r.total == null && r.pedidos == null) return null;
+  return r;
+}
+const neto = (plat, bruto) => Math.round((Number(bruto)||0) * (1 - (COMISION[plat]||0)/100) * 100) / 100;
+
 function excelLines(order){
   const t = toItems(order);
   const m = marcas(t.items);
@@ -675,6 +778,89 @@ Inversión de promoción de artículos de la tienda -MX$125.55
 Ganancias totales después del descuento MX$432.45
 Más opciones
 Pedido listo`},
+{id:'rs', label:'Resumen Rappi', text:`Resumen
+09/11/2026
+Resumen de ventas
+Bess's Pizza's Suc. Sullivan
+Órdenes finalizadas
+Órdenes
+9
+Total acumulado
+$ 4,977.00
+Total descuento restaurante
+- $ 2,048.25
+Total restaurante
+$ 2,928.75
+Total descuento Rappi
+- $ 1,079.85
+Total con descuentos
+$ 1,848.90
+Órdenes canceladas
+Órdenes
+0
+Total acumulado
+$ 0
+Total descuento restaurante
+$ 0
+Total descuento Rappi
+$ 0
+Total con descuentos
+$ 0.00`},
+{id:'ds', label:'Resumen DiDi', text:`Historial
+ID/núm. de pedido, celular 4 dígitos
+Enviar reporte
+Fecha del pedido
+09/11/2026 - 09/11/2026
+Estado del pedido
+Todos
+09/11/2026 ~ 09/11/2026 Total
+Pedidos 2
+Ventas ⓘ MX$664.00
+Ventas sin descuentos ⓘ MX$0.00
+Número de recolección
+Pedido aceptado a las
+Ventas
+Ganancias estimadas
+Estado del pedido
+#2
+09 de nov., 8:21 pm
+MX$449.00
+MX$235.72
+Completado
+DiDi
+#1
+09 de nov., 6:38 pm
+MX$215.00
+MX$150.50
+Completado
+DiDi
+No hay más.`},
+{id:'us', label:'Resumen Uber', text:`Historial de pedidos
+9 nov 2026
+Todos los pedidos
+Ventas
+Pedidos
+MXN 1,770.79
+6
+Entrega en curso
+0
+No hay pedidos
+Completado
+6
+Borja F.
+579E5
+MXN 259.88
+1 artículo
+Entregado
+9 nov 2026, 10:04 p. m.
+Calificación
+Tadeo S.
+8C636
+MXN 259.88
+1 artículo
+Entregado
+9 nov 2026, 9:48 p. m.
+Calificación`},
 {id:'d1', label:'DiDi · #18', text:`#18
 Procesamiento restante: 25:04:43
 El usuario solicitó un reembolso.
@@ -702,6 +888,8 @@ const dayName = iso => { const [y,m,d] = iso.split('-').map(Number); return new 
 const hhmm = t => { const d = new Date(t); return pad(d.getHours())+':'+pad(d.getMinutes()); };
 let dict = Object.assign({}, DEFAULT_DICT, store.get('bees.dict', {}));
 let order = null, msg = '', msgKind = '', xlTab = 'Rappi', viewDay = today(), metodoCaptura = '';
+let resumen = null;
+const remotoRes = {};            // dia -> resúmenes de la base
 const APP = !!window.Android;
 const PLATS = ['Uber','DiDi','Rappi','Reservándonos'];
 const PKEY = {'Uber':'uber','DiDi':'didi','Rappi':'rappi','Reservándonos':'resv'};
@@ -720,6 +908,8 @@ const remoto = {};            // dia -> filas de la base
 let syncInfo = {ok:null, txt:''};
 const cola = () => store.get('bees.cola', []);           // pedidos que faltan por subir
 const setCola = c => store.set('bees.cola', c);
+const colaRes = () => store.get('bees.colaRes', []);     // resúmenes que faltan por subir
+const setColaRes = c => store.set('bees.colaRes', c);
 const logKey = day => 'bees.log.'+day;
 
 function filaAEntrada(r){
@@ -740,9 +930,10 @@ function getLog(day=viewDay){
   cola().filter(e => e.dia === day && !ids.has(e.id)).forEach(e => base.push({...e, pendiente:true}));
   return base.sort((a,b) => String(a.created).localeCompare(String(b.created)));
 }
-async function sb(method, query, body){
-  const r = await fetch(SB_URL + query, {method, headers:{apikey:SB_KEY, Authorization:'Bearer '+SB_KEY, 'x-bees-clave':clave,
-    'Content-Type':'application/json', Prefer:'return=minimal'}, body: body ? JSON.stringify(body) : undefined});
+async function sb(method, query, body, prefer, tabla){
+  const url = tabla ? SB_URL.replace('delivery_pedidos', tabla) : SB_URL;
+  const r = await fetch(url + query, {method, headers:{apikey:SB_KEY, Authorization:'Bearer '+SB_KEY, 'x-bees-clave':clave,
+    'Content-Type':'application/json', Prefer: prefer || 'return=minimal'}, body: body ? JSON.stringify(body) : undefined});
   return r;
 }
 async function refrescar(day=viewDay){
@@ -751,6 +942,8 @@ async function refrescar(day=viewDay){
     const r = await sb('GET', '?select=*&dia=eq.'+day+'&order=created_at.asc');
     if (!r.ok) throw new Error('HTTP '+r.status);
     remoto[day] = await r.json();
+    const rr = await sb('GET', '?select=*&dia=eq.'+day, null, null, 'delivery_resumen');
+    if (rr.ok) remotoRes[day] = await rr.json();
     syncInfo = {ok:true, txt:'Conectado · ' + hhmm(Date.now())};
   } catch(e) { syncInfo = {ok:false, txt:'Sin conexión: se guarda en la tableta y se sube después'}; }
   pintarSync();
@@ -761,6 +954,12 @@ async function subirCola(){
   subiendo = true;
   const yaEstaban = [];
   try {
+    for (const rs of colaRes()) {
+      try {
+        const r = await sb('POST', '', rs, 'resolution=merge-duplicates,return=minimal', 'delivery_resumen');
+        if (r.ok) setColaRes(colaRes().filter(x => x.id !== rs.id)); else break;
+      } catch(err) { break; }
+    }
     for (const e of cola()) {
       let r;
       try { r = await sb('POST', '', entradaAAlta(e)); } catch(err) { syncInfo = {ok:false, txt:'Sin conexión: se guarda en la tableta y se sube después'}; break; }
@@ -817,6 +1016,7 @@ function modChip(md, p){
 /* ---------- Confirmar pedido ---------- */
 function renderOut(){
   const el = $('out');
+  if (resumen) { renderResumen(); return; }
   if (!order){ el.innerHTML = '<div class="empty">Pega el texto de un pedido o toca un ejemplo y luego «Leer pedido».</div>'; return; }
   const xl = excelLines(order);
   const day = orderDay();
@@ -878,6 +1078,8 @@ function renderOut(){
 
 function reread(keepMeta){
   const prev = order;
+  resumen = parseResumen($('src').value, $('platform').value);
+  if (resumen) { order = null; msg = ''; renderOut(); return; }
   order = parseOrder($('src').value, $('platform').value, dict);
   order.metodo = metodoCaptura;
   if (keepMeta && prev){ order.platform = prev.platform || order.platform; order.number = prev.number || order.number; }
@@ -948,6 +1150,7 @@ function renderXl(){
     ? `<div class="tablewrap"><table><thead><tr><th>Renglón del Excel (pestaña ${esc(xlTab.toUpperCase())})</th><th style="text-align:right">Marcas</th></tr></thead><tbody>${c.map(([n,q])=>`<tr><td>${esc(n)}</td><td class="n">${q}</td></tr>`).join('')}</tbody></table></div>`
     : `<div class="empty">Sin pedidos de ${esc(xlTab)} el ${esc(dayName(viewDay))}. Lo que registres se suma aquí, listo para la pestaña de ${esc(xlTab)}.</div>`;
   renderConcentrado();
+  renderCorte();
 }
 /* ---------- Concentrado (como la hoja CONCENTRADO DELIVERY) ---------- */
 const CATS = [['Pizzas',6,19],['Combos / promos',20,29],['Complementos',30,38],['Postres',39,41],['Bebidas',42,60],['Dips / aderezos',61,67]];
@@ -980,6 +1183,85 @@ function renderConcentrado(){
   }
   h += `<tr><td><strong>Total del día</strong></td>${PL3.map(p=>{ let s=0; tabla.forEach(t=>s+=t[p]); return `<td class="n">${s}</td>`; }).join('')}<td class="n">${marcas}</td></tr></tbody></table></div>`;
   $('con').innerHTML = h;
+}
+
+/* ---------- Resúmenes de ventas y corte ---------- */
+const PNOM = {uber:'Uber', didi:'DiDi', rappi:'Rappi'};
+const dineroMX = v => '$' + (Number(v)||0).toLocaleString('es-MX',{minimumFractionDigits:2, maximumFractionDigits:2});
+function getResumenes(day){
+  const base = SYNC() ? (remotoRes[day] || []).slice() : Object.values(store.get('bees.resumen.'+day, {}));
+  if (SYNC()) colaRes().filter(r => r.dia === day).forEach(r => { const i = base.findIndex(x => x.id === r.id); if (i >= 0) base[i] = {...r, pendiente:true}; else base.push({...r, pendiente:true}); });
+  return base;
+}
+function comparar(r){
+  const regs = getLog(r.dia).filter(o => o.platform === PNOM[r.plat]);
+  const cods = new Set(regs.map(o => String(o.number).toUpperCase().replace(/^#/,'')));
+  const lista = (r.lista||[]).filter(x => !/cancel/i.test(x.estado||''));
+  const faltan = lista.filter(x => !cods.has(String(x.code).toUpperCase()));
+  return {capturados: regs.length, faltan, listaCompleta: r.pedidos == null || lista.length >= r.pedidos};
+}
+function lineaCorte(plat, total){ return `${PNOM[plat] === 'DiDi' ? 'Didi' : PNOM[plat]}: ${dineroMX(total)} -${COMISION[plat]}%=${dineroMX(neto(plat, total))}`; }
+function renderResumen(){
+  const r = resumen, el = $('out');
+  const dia = r.dia || today(); r.dia = dia;
+  const c = comparar(r);
+  const guardado = getResumenes(dia).find(x => x.id === dia+'|'+r.plat);
+  let h = `<div class="order-head"><span class="chip ok">Resumen del día</span><b>${esc(PNOM[r.plat])} · ${esc(dayName(dia))}</b>${guardado?'<span class="chip">Ya guardado; se reemplaza</span>':''}</div>`;
+  h += `<div class="stats">
+    <div class="stat total"><span class="label">Para el corte</span><b>${dineroMX(r.total)}</b><span class="hint">${esc(r.totalNota)}</span></div>
+    <div class="stat"><span class="label">Pedidos según ${esc(PNOM[r.plat])}</span><b>${r.pedidos ?? '—'}</b>${r.cancelados?`<span class="hint">${r.cancelados} cancelados</span>`:''}</div>
+    <div class="stat"><span class="label">Capturados</span><b>${c.capturados}</b><span class="hint">${r.pedidos==null?'':(c.capturados===r.pedidos?'Cuadra':(c.capturados<r.pedidos?'Faltan '+(r.pedidos-c.capturados):'Sobran '+(c.capturados-r.pedidos)))}</span></div>
+  </div>`;
+  if (r.pedidos != null && c.capturados !== r.pedidos) h += `<div class="alert warn">${esc(PNOM[r.plat])} dice ${r.pedidos} pedidos y hay ${c.capturados} capturados.${c.faltan.length ? ' Falta: ' + c.faltan.map(x => '#'+esc(x.code)+(x.hora?' ('+x.hora+')':'')).join(', ') + '.' : ''}</div>`;
+  else if (r.pedidos != null) h += '<div class="alert" style="background:var(--ok-soft);color:var(--ok)">Cuadra: todos los pedidos de la app están capturados.</div>';
+  h += `<p><b>Línea para el corte:</b> ${esc(lineaCorte(r.plat, r.total))}</p>`;
+  const ex = r.extra || {};
+  const nombres = {total_acumulado:'Total acumulado', descuento_restaurante:'Descuento restaurante', total_restaurante:'Total restaurante', descuento_rappi:'Descuento Rappi', ventas_sin_descuentos:'Ventas sin descuentos'};
+  const exs = Object.keys(ex).filter(k => nombres[k]);
+  if (exs.length) h += `<p class="hint">${exs.map(k => nombres[k]+': '+dineroMX(ex[k])).join(' · ')}</p>`;
+  if ((r.lista||[]).length) {
+    const cods = new Set(getLog(dia).filter(o => o.platform === PNOM[r.plat]).map(o => String(o.number).toUpperCase()));
+    h += '<div class="tablewrap"><table><thead><tr><th>Pedido</th><th>Hora</th><th style="text-align:right">Monto</th><th>Estado</th><th>Capturado</th></tr></thead><tbody>' +
+      r.lista.map(x => `<tr><td>#${esc(x.code)}${x.cliente?`<div class="hint">${esc(x.cliente)}</div>`:''}</td><td>${esc(x.hora)}</td><td class="n">${x.monto!=null?dineroMX(x.monto):''}</td><td>${esc(x.estado)}</td><td>${cods.has(String(x.code).toUpperCase())?'<span class="chip ok">Sí</span>':(/cancel/i.test(x.estado||'')?'<span class="chip">Cancelado</span>':'<span class="chip bad">Falta</span>')}</td></tr>`).join('') + '</tbody></table></div>';
+    if (!c.listaCompleta) h += `<p class="hint">La pantalla muestra ${r.lista.length} de ${r.pedidos} pedidos; para revisarlos uno por uno, captura con la lista completa a la vista.</p>`;
+  }
+  h += `<div class="row"><button class="primary" id="btnGuardarRes" ${r.total==null?'disabled':''}>Guardar resumen del ${esc(dayName(dia))}</button>${APP?'<button class="ghost" id="btnVolver">Volver a la app</button>':''}<span class="msg ${msgKind}">${esc(msg)}</span></div>`;
+  el.innerHTML = h;
+  $('btnGuardarRes').onclick = guardarResumen;
+  const bv = $('btnVolver'); if (bv) bv.onclick = () => window.Android.volver();
+}
+async function guardarResumen(){
+  const r = resumen;
+  const rec = {id: r.dia+'|'+r.plat, dia:r.dia, plat:r.plat, pedidos:r.pedidos, cancelados:r.cancelados, total:r.total, total_nota:r.totalNota,
+    lista:r.lista, extra:r.extra, texto:$('src').value.slice(0,8000), updated_at:new Date().toISOString()};
+  if (SYNC()) { setColaRes([...colaRes().filter(x => x.id !== rec.id), rec]); subirCola(); }
+  else { const m = store.get('bees.resumen.'+r.dia, {}); m[r.plat] = rec; store.set('bees.resumen.'+r.dia, m); }
+  msg = 'Resumen guardado.'; msgKind = 'ok';
+  viewDay = r.dia; $('logDay').value = r.dia;
+  renderOut(); renderLog(); renderXl();
+}
+function textoCorte(){
+  const res = getResumenes(viewDay);
+  const de = p => res.find(r => r.plat === p);
+  const lineas = ['didi','uber','rappi'].map(p => lineaCorte(p, de(p) ? de(p).total : 0));
+  const tot = ['didi','uber','rappi'].reduce((a,p) => a + (de(p) ? neto(p, de(p).total) : 0), 0);
+  return lineas.join('\n') + '\nReservandonos: $0\n\nDelivery neto: ' + dineroMX(tot);
+}
+function renderCorte(){
+  const res = getResumenes(viewDay);
+  let h = '<div class="tablewrap"><table><thead><tr><th>Plataforma</th><th style="text-align:right">Pedidos app</th><th style="text-align:right">Capturados</th><th style="text-align:right">Venta</th><th style="text-align:right">Después de comisión</th></tr></thead><tbody>';
+  let tot = 0;
+  for (const p of ['didi','uber','rappi']) {
+    const r = res.find(x => x.plat === p);
+    const capt = getLog().filter(o => o.platform === PNOM[p]).length;
+    if (r) tot += neto(p, r.total);
+    const c = r ? comparar(r) : null;
+    const aviso = r && r.pedidos != null && capt !== r.pedidos ? `<div class="hint" style="color:var(--warn)">${capt<r.pedidos?'Faltan '+(r.pedidos-capt):'Sobran '+(capt-r.pedidos)}${c.faltan.length?': #'+c.faltan.map(x=>esc(x.code)).join(', #'):''}</div>` : '';
+    h += `<tr><td>${PNOM[p]}${r&&r.pendiente?' <span class="chip warn">Por subir</span>':''}</td><td class="n">${r ? (r.pedidos ?? '—') : '<span class="hint">sin resumen</span>'}</td><td class="n">${capt}${aviso}</td><td class="n">${r ? dineroMX(r.total) : '—'}</td><td class="n">${r ? dineroMX(neto(p, r.total)) : '—'}</td></tr>`;
+  }
+  h += `<tr><td colspan="4"><strong>Delivery después de comisiones</strong></td><td class="n">${dineroMX(tot)}</td></tr></tbody></table></div>`;
+  h += `<pre class="hint" style="white-space:pre-wrap;margin:0">${esc(textoCorte())}</pre>`;
+  $('corte').innerHTML = h;
 }
 
 function textoConteo(){
@@ -1028,6 +1310,12 @@ $('platform').onchange = () => { if (order){ order.platform = $('platform').valu
 $('logDay').value = viewDay;
 $('logDay').onchange = async e => { viewDay = e.target.value || today(); renderLog(); renderXl(); await refrescar(viewDay); renderLog(); renderXl(); };
 $('conTodos').onchange = renderConcentrado;
+$('btnCopyCorte').onclick = () => {
+  const txt = textoCorte();
+  const done = ok => { $('btnCopyCorte').textContent = ok ? 'Copiado' : 'Selecciónalo a mano'; setTimeout(() => $('btnCopyCorte').textContent = 'Copiar para el corte', 2000); };
+  if (APP) { try { window.Android.copiar(txt); done(true); } catch(e){ done(false); } return; }
+  try { navigator.clipboard.writeText(txt).then(()=>done(true), ()=>done(false)); } catch(e){ done(false); }
+};
 $('btnResetDay').onclick = () => { $('resetConfirm').hidden = false; };
 $('btnResetNo').onclick = () => { $('resetConfirm').hidden = true; };
 $('btnResetYes').onclick = () => { store.set(logKey(viewDay), []); $('resetConfirm').hidden = true; renderLog(); renderXl(); renderOut(); };
@@ -1047,7 +1335,8 @@ window.cargarCaptura = (texto, plataforma, metodo) => {
   if (order && order.platform) xlTab = order.platform;
   renderXl();
   $('t-out').scrollIntoView({behavior:'smooth', block:'start'});
-  if (SYNC()) refrescar(orderDay()).then(() => { renderOut(); });
+  const diaCap = resumen ? (resumen.dia || today()) : orderDay();
+  if (SYNC()) refrescar(diaCap).then(() => { renderOut(); });
 };
 window.actualizarEstado = () => {
   if (!APP) return;

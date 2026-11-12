@@ -44,7 +44,7 @@ main{max-width:880px;margin:0 auto;padding:14px max(16px,env(safe-area-inset-rig
 .estado .p{width:8px;height:8px;border-radius:50%;background:var(--ok);display:inline-block;margin-right:6px}
 .estado.err .p{background:var(--bad)}
 h2{font:600 19px/1.2 var(--display);margin:0}
-.panel{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px;display:grid;gap:12px;min-width:0}
+.panel{min-width:0;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px;display:grid;gap:12px;min-width:0}
 .row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between}
 .stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
 @media (max-width:560px){.stats{grid-template-columns:repeat(2,minmax(0,1fr))}}
@@ -57,7 +57,8 @@ h2{font:600 19px/1.2 var(--display);margin:0}
 table{border-collapse:collapse;width:100%;font-size:14px;font-variant-numeric:tabular-nums}
 th,td{padding:7px 8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
 th{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600}
-td.n,th.n{text-align:right;width:56px}
+td.n,th.n{text-align:right;white-space:nowrap}
+#corte td.n{white-space:normal}
 td.n{font-weight:700}
 td.cero{color:var(--muted);font-weight:400;opacity:.6}
 tr.cat td{background:var(--bg);font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600;padding-top:10px}
@@ -113,6 +114,14 @@ tr.tot td{border-bottom:0;font-weight:800}
     <div class="estado" id="estado"><span><span class="p"></span><span id="estadoTxt">Cargando…</span></span><button id="btnAct">Actualizar</button></div>
 
     <div class="stats" id="stats"></div>
+
+    <section class="panel" aria-labelledby="tCorte">
+      <div class="row">
+        <h2 id="tCorte">Corte</h2>
+        <button id="btnCorte">Copiar para el corte</button>
+      </div>
+      <div id="corte"></div>
+    </section>
 
     <section class="panel" aria-labelledby="tCon">
       <div class="row">
@@ -174,7 +183,10 @@ const esc = s => String(s??'').replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>
 const dinero = v => '$' + (Number(v)||0).toLocaleString('es-MX',{minimumFractionDigits:2, maximumFractionDigits:2});
 
 let clave = store.get('bees.clave', '');
-let dia = hoy(), filas = [], filtro = '', timer = null;
+let dia = hoy(), filas = [], resumenes = [], filtro = '', timer = null;
+const COMISION = {didi:56.53, uber:58.42, rappi:47.73};
+const neto = (p, v) => Math.round((Number(v)||0) * (1 - COMISION[p]/100) * 100) / 100;
+const PN = {didi:'Didi', uber:'Uber', rappi:'Rappi'};
 
 async function sb(query, opts){
   return fetch(SB_URL + query, Object.assign({headers:{apikey:SB_KEY, Authorization:'Bearer '+SB_KEY, 'x-bees-clave':clave}}, opts||{}));
@@ -200,6 +212,8 @@ async function cargar(){
     const r = await sb('?select=*&dia=eq.' + dia + '&plat=neq.resv&order=created_at.asc');
     if (!r.ok) throw new Error('La base respondió ' + r.status);
     filas = await r.json();
+    const rr = await fetch(SB_URL.replace('delivery_pedidos','delivery_resumen') + '?select=*&dia=eq.' + dia, {headers:{apikey:SB_KEY, Authorization:'Bearer '+SB_KEY, 'x-bees-clave':clave}});
+    if (rr.ok) resumenes = await rr.json();
     $('estado').className = 'estado';
     $('estadoTxt').textContent = (dia === hoy() ? 'Hoy, ' : '') + nombreDia(dia) + ' · actualizado ' + hhmm(Date.now());
   } catch(e) {
@@ -209,7 +223,32 @@ async function cargar(){
   pintar();
 }
 
+function textoCorte(){
+  const de = p => resumenes.find(r => r.plat === p);
+  let tot = 0;
+  const l = ['didi','uber','rappi'].map(p => { const v = de(p) ? Number(de(p).total)||0 : 0; tot += neto(p, v); return `${PN[p]}: ${dinero(v)} -${COMISION[p]}%=${dinero(neto(p, v))}`; });
+  return l.join('\n') + '\nReservandonos: $0\n\nDelivery neto: ' + dinero(tot);
+}
+function pintarCorte(){
+  let h = '<div class="tw"><table><thead><tr><th>App</th><th class="n">Capturados</th><th class="n">Venta</th><th class="n">Neto</th></tr></thead><tbody>';
+  let tot = 0;
+  for (const p of ['didi','uber','rappi']) {
+    const r = resumenes.find(x => x.plat === p);
+    const regs = filas.filter(f => f.plat === p);
+    const cods = new Set(regs.map(f => String(f.code).toUpperCase()));
+    const faltan = r ? (r.lista||[]).filter(x => !/cancel/i.test(x.estado||'') && !cods.has(String(x.code).toUpperCase())) : [];
+    if (r) tot += neto(p, r.total);
+    const av = r && r.pedidos != null && regs.length !== r.pedidos ? `<div class="hint" style="color:var(--bad)">${regs.length < r.pedidos ? 'Faltan '+(r.pedidos-regs.length) : 'Sobran '+(regs.length-r.pedidos)}${faltan.length ? ': #'+faltan.map(x=>esc(x.code)).join(', #') : ''}</div>` : '';
+    h += `<tr><td>${PN[p]}${r ? '' : '<div class="hint">sin resumen</div>'}</td><td class="n">${regs.length}${r && r.pedidos != null ? ' de ' + r.pedidos : ''}${av}</td><td class="n">${r ? dinero(r.total) : '—'}</td><td class="n">${r ? dinero(neto(p, r.total)) : '—'}</td></tr>`;
+  }
+  h += `<tr class="tot"><td colspan="3">Delivery neto</td><td class="n">${dinero(tot)}</td></tr></tbody></table></div>`;
+  h += `<pre class="hint" style="white-space:pre-wrap;margin:0;font:13px/1.5 ui-monospace,Menlo,monospace">${esc(textoCorte())}</pre>`;
+  if (!resumenes.length) h += '<p class="hint">Al cierre, captura en cada tableta el resumen de ventas del día de la app para llenar esta parte.</p>';
+  $('corte').innerHTML = h;
+}
+
 function pintar(){
+  pintarCorte();
   const tabla = new Map(), ped = {uber:0,didi:0,rappi:0}, venta = {uber:0,didi:0,rappi:0};
   for (const f of filas) {
     if (!(f.plat in ped)) continue;
@@ -284,6 +323,11 @@ $('dAnt').onclick = () => { dia = masDias(dia, -1); $('dIn').value = dia; cargar
 $('dSig').onclick = () => { dia = masDias(dia, 1); $('dIn').value = dia; cargar(); };
 $('dHoy').onclick = () => { dia = hoy(); $('dIn').value = dia; cargar(); };
 $('btnAct').onclick = cargar;
+$('btnCorte').onclick = () => {
+  const t = textoCorte(), b = $('btnCorte');
+  const fin = ok => { b.textContent = ok ? 'Copiado' : 'Selecciónalo a mano'; setTimeout(() => b.textContent = 'Copiar para el corte', 2000); };
+  try { navigator.clipboard.writeText(t).then(() => fin(true), () => fin(false)); } catch(e) { fin(false); }
+};
 $('todos').onchange = pintar;
 $('btnXl').onclick = descargar;
 $('btnSalir').onclick = () => { store.del('bees.clave'); clave = ''; clearInterval(timer); mostrar(); };
