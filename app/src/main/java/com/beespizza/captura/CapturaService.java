@@ -309,7 +309,16 @@ public class CapturaService extends AccessibilityService {
     }
 
     void proyeccionLista() {
-        h.postDelayed(() -> tomarImagenYBajar(0), 600);
+        // Se espera a que se cierre la ventana del permiso y vuelva a verse la app de pedidos
+        h.postDelayed(() -> {
+            AccessibilityNodeInfo r = getRootInActiveWindow();
+            if (r != null && getPackageName().equals(String.valueOf(r.getPackageName()))) {
+                aviso("Permiso listo. Abre el pedido y toca el hexágono otra vez.");
+                fin();
+                return;
+            }
+            tomarImagenYBajar(0);
+        }, 1200);
     }
 
     void proyeccionNegada() {
@@ -406,14 +415,20 @@ public class CapturaService extends AccessibilityService {
         Collections.sort(lineas, (a, b) -> Integer.compare(a.getBoundingBox().centerY(), b.getBoundingBox().centerY()));
         StringBuilder sb = new StringBuilder();
         List<Text.Line> renglon = new ArrayList<>();
-        float centro = -1, alto = 0;
+        // Un renglón junta lo que se encima de alto (aunque tenga distinto tamaño de letra),
+        // así «Usuario» y «Socio repartidor», o el nombre del combo y su etiqueta, quedan juntos y en orden
+        int arriba = 0, abajo = 0, altoMin = 0;
         for (Text.Line l : lineas) {
             Rect r = l.getBoundingBox();
-            if (!renglon.isEmpty() && Math.abs(r.centerY() - centro) > alto * 0.6f) {
-                volcar(renglon, sb);
-                renglon.clear();
+            if (!renglon.isEmpty()) {
+                int encima = Math.min(abajo, r.bottom) - Math.max(arriba, r.top);
+                if (encima < 0.45f * Math.min(altoMin, Math.max(1, r.height()))) {
+                    volcar(renglon, sb);
+                    renglon.clear();
+                }
             }
-            if (renglon.isEmpty()) { centro = r.centerY(); alto = Math.max(1, r.height()); }
+            if (renglon.isEmpty()) { arriba = r.top; abajo = r.bottom; altoMin = Math.max(1, r.height()); }
+            else { arriba = Math.min(arriba, r.top); abajo = Math.max(abajo, r.bottom); altoMin = Math.min(altoMin, Math.max(1, r.height())); }
             renglon.add(l);
         }
         volcar(renglon, sb);

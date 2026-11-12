@@ -32,6 +32,8 @@
         <!-- Pide permiso para leer la imagen de la pantalla (solo tabletas con Android 10 o anterior) -->
         <activity
             android:name=".ProyeccionActivity"
+            android:taskAffinity=""
+            android:noHistory="true"
             android:excludeFromRecents="true"
             android:exported="false"
             android:theme="@android:style/Theme.Translucent.NoTitleBar" />

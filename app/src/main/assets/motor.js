@@ -105,7 +105,15 @@ function prepass(lines){
       }
       if (RESV_QTY.test(l) && out.length > 1 && MEXP.test(out[out.length-1]) && !ITEM.test(out[out.length-2]) && !MONEY_ONLY.test(out[out.length-2])) out.pop();
     }
-    if (SOLO_QTY.test(l) && lines[i+1]) l = l+' '+lines[++i];
+    if (SOLO_QTY.test(l) && lines[i+1]) {
+      // Leído de la imagen: «1x» · «Combo» (etiqueta) · «MX$264.00» · «Combo Bee Clásico» (el nombre quedó después del precio)
+      const ETIQ = /^(combo|nuevo|promoci[oó]n|m[aá]s vendido)$/i;
+      let j = i+1; const etq = ETIQ.test(lines[j]); if (etq) j++;
+      const nom = lines[j+1];
+      if (lines[j] && MONEY_ONLY.test(lines[j]) && nom && !MONEY_ONLY.test(nom) && !ITEM.test(nom) && !ETIQ.test(nom) && !isHeader(nom) && !IGNORE.test(nom) && /[A-Za-zÁÉÍÓÚÑáéíóúñ]{3}/.test(nom)) { l = l+' '+nom+' '+lines[j]; i = j+1; }
+      else if (etq && lines[j]) { l = l+' '+lines[j]; i = j; }
+      else l = l+' '+lines[++i];
+    }
     if (GUION.test(l) && !/^-{3,}$/.test(l)) continue;      // «---» separa pantallas al bajar: se conserva
     // Uber: «Subtotal / Oferta especial / Total» y abajo sus importes en el mismo orden → se emparejan
     if (ETQ_TOTAL.test(l)) {
@@ -186,14 +194,21 @@ function parseSegment(lines, dict){
     const dm = l.match(DATE); if (dm && !ITEM.test(l)) { if (!seg.date) seg.date = dm[3]+'-'+String(MONTHS.indexOf(dm[2].toLowerCase())+1).padStart(2,'0')+'-'+dm[1].padStart(2,'0'); continue; }
     const d2 = l.match(DATE2); if (d2 && !ITEM.test(l)) { if (!seg.date) seg.date = d2[3]+'-'+String(['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'].indexOf(d2[1].toLowerCase())+1).padStart(2,'0')+'-'+d2[2].padStart(2,'0'); continue; }
     const np = l.match(/^(\d+)\s+productos?$/i); if (np) { seg.expected = parseInt(np[1],10); continue; }
-    if (/^(cliente|usuario)$/i.test(l)) {
-      let j = i+1; while (lines[j] && /pidi[oó]|vez\/veces/i.test(lines[j])) j++;
-      const nx = lines[j]; if (nx && !IGNORE.test(nx) && !ITEM.test(nx)) { seg.client = nx; i = j; }
-      continue;
-    }
-    if (/^socio repartidor$/i.test(l)) {                          // DiDi historial: nombre del repartidor y estado
-      if (lines[i+1] && !ITEM.test(lines[i+1])) i++;
-      if (lines[i+1] && /^(entregad|en camino|recogid|asignad|esperando)/i.test(lines[i+1])) i++;
+    if (/^(cliente|usuario|socio repartidor)$/i.test(l)) {
+      // DiDi pone «Usuario» y «Socio repartidor» lado a lado: leídos de la imagen llegan las dos etiquetas
+      // y luego los dos nombres, en el mismo orden. Solo el usuario es el cliente.
+      const BADGE = /pidi[oó]|vez\/veces/i, ETQ = /^(cliente|usuario|socio repartidor)$/i;
+      const etqs = []; let j = i;
+      while (lines[j] && (ETQ.test(lines[j]) || BADGE.test(lines[j]))) { if (!BADGE.test(lines[j])) etqs.push(lines[j].toLowerCase()); j++; }
+      for (const e of etqs) {
+        while (lines[j] && BADGE.test(lines[j])) j++;
+        const v = lines[j];
+        if (!v || ITEM.test(v) || IGNORE.test(v) || MONEY_ONLY.test(v) || /^notas del pedido/i.test(v)) break;
+        if (e !== 'socio repartidor') seg.client = v;
+        j++;
+      }
+      while (lines[j] && /^(entregad\w*|en camino|recogid\w*|asignad\w*|esperando.*|\d+\s*min)$/i.test(lines[j])) j++;
+      i = j - 1;
       continue;
     }
     if (/reembolso|pedido cancelado|orden cancelada/i.test(l)) { seg.alerts.push(l); continue; }
