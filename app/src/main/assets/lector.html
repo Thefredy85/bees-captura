@@ -81,6 +81,12 @@ th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);verti
 th{font-size:12px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);font-weight:600}
 td.n{text-align:right;font-variant-numeric:tabular-nums;font-weight:700}
 .empty{color:var(--muted);padding:18px;text-align:center;border:1px dashed var(--line);border-radius:10px}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px}
+.stat{border:1px solid var(--line);border-radius:10px;padding:10px 12px;display:grid;gap:2px;font-variant-numeric:tabular-nums}
+.stat b{font-family:var(--display);font-weight:800;font-size:24px;line-height:1.1}
+.stat.total{background:var(--honey-soft);border-color:var(--honey)}
+tr.cat td{background:var(--bg);font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600}
+td.cero{color:var(--muted);font-weight:400}
 details summary{cursor:pointer;font-family:var(--display);font-weight:600;font-size:18px}
 .confirm-bar{background:var(--bad-soft);border-radius:8px;padding:8px 12px;display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 @media (prefers-reduced-motion:no-preference){.item{transition:background .2s,border-color .2s}}
@@ -171,6 +177,15 @@ details summary{cursor:pointer;font-family:var(--display);font-weight:600;font-s
       <span class="msg" id="xlMsg"></span>
     </div>
     <div id="xlReporte" class="hint" hidden></div>
+  </section>
+
+  <section class="panel" aria-labelledby="t-con">
+    <div class="row" style="justify-content:space-between">
+      <h2 id="t-con">Concentrado del día</h2>
+      <label class="hint row" for="conTodos"><input type="checkbox" id="conTodos"> Ver todos los productos</label>
+    </div>
+    <div class="stats" id="conStats"></div>
+    <div id="con"></div>
   </section>
 
   <details class="panel">
@@ -932,7 +947,41 @@ function renderXl(){
   $('xl').innerHTML = c.length
     ? `<div class="tablewrap"><table><thead><tr><th>Renglón del Excel (pestaña ${esc(xlTab.toUpperCase())})</th><th style="text-align:right">Marcas</th></tr></thead><tbody>${c.map(([n,q])=>`<tr><td>${esc(n)}</td><td class="n">${q}</td></tr>`).join('')}</tbody></table></div>`
     : `<div class="empty">Sin pedidos de ${esc(xlTab)} el ${esc(dayName(viewDay))}. Lo que registres se suma aquí, listo para la pestaña de ${esc(xlTab)}.</div>`;
+  renderConcentrado();
 }
+/* ---------- Concentrado (como la hoja CONCENTRADO DELIVERY) ---------- */
+const CATS = [['Pizzas',6,19],['Combos / promos',20,29],['Complementos',30,38],['Postres',39,41],['Bebidas',42,60],['Dips / aderezos',61,67]];
+const PL3 = ['Uber','DiDi','Rappi'];
+function renderConcentrado(){
+  const log = getLog().filter(o => PL3.includes(o.platform));
+  const tabla = new Map();                   // renglón -> {Uber, DiDi, Rappi}
+  const ped = {Uber:0, DiDi:0, Rappi:0}, venta = {Uber:0, DiDi:0, Rappi:0};
+  for (const o of log) {
+    ped[o.platform]++; venta[o.platform] += Number(o.total) || 0;
+    for (const l of (o.lines||[])) {
+      const t = tabla.get(l.excel) || {Uber:0, DiDi:0, Rappi:0};
+      t[o.platform] += l.qty; tabla.set(l.excel, t);
+    }
+  }
+  const sum = t => t.Uber + t.DiDi + t.Rappi;
+  let marcas = 0; tabla.forEach(t => marcas += sum(t));
+  const tot = ped.Uber + ped.DiDi + ped.Rappi;
+  $('conStats').innerHTML =
+    `<div class="stat total"><span class="label">Pedidos</span><b>${tot}</b><span class="hint">${marcas} marcas en el Excel</span></div>` +
+    PL3.map(p => `<div class="stat"><span class="label">${p}</span><b>${ped[p]}</b><span class="hint">${fmt(venta[p])}</span></div>`).join('');
+  const todos = $('conTodos').checked;
+  if (!tot && !todos) { $('con').innerHTML = `<div class="empty">Aún no hay pedidos el ${esc(dayName(viewDay))}.</div>`; return; }
+  let h = '<div class="tablewrap"><table><thead><tr><th>Producto</th><th style="text-align:right">Uber</th><th style="text-align:right">DiDi</th><th style="text-align:right">Rappi</th><th style="text-align:right">Total</th></tr></thead><tbody>';
+  for (const [cat, a, b] of CATS) {
+    const filas = RENGLONES.slice(a-6, b-5).map(n => [n, tabla.get(n) || {Uber:0, DiDi:0, Rappi:0}]).filter(([,t]) => todos || sum(t));
+    if (!filas.length) continue;
+    h += `<tr class="cat"><td colspan="5">${cat}</td></tr>`;
+    h += filas.map(([n,t]) => `<tr><td>${esc(n)}</td>${PL3.map(p=>`<td class="n${t[p]?'':' cero'}">${t[p]}</td>`).join('')}<td class="n">${sum(t)}</td></tr>`).join('');
+  }
+  h += `<tr><td><strong>Total del día</strong></td>${PL3.map(p=>{ let s=0; tabla.forEach(t=>s+=t[p]); return `<td class="n">${s}</td>`; }).join('')}<td class="n">${marcas}</td></tr></tbody></table></div>`;
+  $('con').innerHTML = h;
+}
+
 function textoConteo(){
   const c = counts(xlTab);
   return `${xlTab} · ${viewDay}\n` + (c.length ? c.map(([n,q])=>`${q} ${n}`).join('\n') : 'Sin pedidos');
@@ -978,6 +1027,7 @@ $('btnClear').onclick = () => { $('src').value=''; order=null; msg=''; renderOut
 $('platform').onchange = () => { if (order){ order.platform = $('platform').value || detectPlatform($('src').value); renderOut(); } };
 $('logDay').value = viewDay;
 $('logDay').onchange = async e => { viewDay = e.target.value || today(); renderLog(); renderXl(); await refrescar(viewDay); renderLog(); renderXl(); };
+$('conTodos').onchange = renderConcentrado;
 $('btnResetDay').onclick = () => { $('resetConfirm').hidden = false; };
 $('btnResetNo').onclick = () => { $('resetConfirm').hidden = true; };
 $('btnResetYes').onclick = () => { store.set(logKey(viewDay), []); $('resetConfirm').hidden = true; renderLog(); renderXl(); renderOut(); };

@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<meta name="theme-color" content="#f2b705">
+<title>Registro Delivery Bee's</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 2l12 7v14l-12 7-12-7V9z' fill='%23f2b705'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Inter:wght@400;500;600&display=swap">
+<style>
+/* Layout: una columna para teléfono; encabezado fijo con el día, luego cifras, concentrado y pedidos */
+:root{
+  --bg:#f7f5ef; --surface:#fff; --ink:#1f1c16; --muted:#6c6556; --line:#e3ddcd;
+  --honey:#f2b705; --honey-ink:#3a2c00; --honey-soft:#fff4cc;
+  --ok:#1f7a4d; --ok-soft:#e1f3e9; --bad:#b3261e; --bad-soft:#fbe3e1;
+  --uber:#1f7a4d; --didi:#d4610f; --rappi:#d0204f;
+  --display:"Bricolage Grotesque","Arial Rounded MT Bold",system-ui,sans-serif;
+  --body:"Inter",system-ui,-apple-system,"Segoe UI",sans-serif;
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){:root{
+  --bg:#16140f; --surface:#211e17; --ink:#f1ece0; --muted:#a69d89; --line:#38332a;
+  --honey:#f5c330; --honey-ink:#2a2000; --honey-soft:#3a3018;
+  --ok:#6fd39f; --ok-soft:#173326; --bad:#ff8a80; --bad-soft:#3d1a18;
+  --uber:#6fd39f; --didi:#ffa45c; --rappi:#ff6f93; color-scheme:dark}}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 var(--body);padding-bottom:env(safe-area-inset-bottom,0px)}
+[hidden]{display:none!important}
+button,input{font:inherit;color:inherit}
+button{cursor:pointer;border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:9px 14px;font-weight:600}
+button:focus-visible,input:focus-visible{outline:2px solid var(--honey);outline-offset:2px}
+button.primary{background:var(--honey);border-color:var(--honey);color:var(--honey-ink)}
+.top{position:sticky;top:0;z-index:5;background:var(--surface);border-bottom:1px solid var(--line);padding:calc(10px + env(safe-area-inset-top,0px)) max(16px,env(safe-area-inset-right,0px)) 10px max(16px,env(safe-area-inset-left,0px))}
+.top-in{max-width:880px;margin:0 auto;display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px}
+h1{font:800 22px/1.1 var(--display);margin:0;display:flex;align-items:center;gap:8px;flex:1 1 auto}
+h1 i{width:16px;height:18px;background:var(--honey);clip-path:polygon(50% 0,100% 25%,100% 75%,50% 100%,0 75%,0 25%)}
+.dia{display:flex;align-items:center;gap:6px}
+.dia button{padding:8px 12px}
+.dia input{border:1px solid var(--line);background:var(--bg);border-radius:10px;padding:8px 10px;min-width:0}
+main{max-width:880px;margin:0 auto;padding:14px max(16px,env(safe-area-inset-right,0px)) 32px max(16px,env(safe-area-inset-left,0px));display:grid;gap:16px}
+.estado{font-size:13px;color:var(--muted);display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center}
+.estado .p{width:8px;height:8px;border-radius:50%;background:var(--ok);display:inline-block;margin-right:6px}
+.estado.err .p{background:var(--bad)}
+h2{font:600 19px/1.2 var(--display);margin:0}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px;display:grid;gap:12px;min-width:0}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between}
+.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+@media (max-width:560px){.stats{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.stat{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 12px;display:grid;gap:2px;font-variant-numeric:tabular-nums;border-top:4px solid var(--c,var(--line))}
+.stat.total{background:var(--honey-soft);border-color:var(--honey);border-top-color:var(--honey)}
+.stat span{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600}
+.stat b{font:800 28px/1.05 var(--display)}
+.stat small{color:var(--muted);font-size:13px}
+.tw{overflow-x:auto;margin:0 -2px}
+table{border-collapse:collapse;width:100%;font-size:14px;font-variant-numeric:tabular-nums}
+th,td{padding:7px 8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+th{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600}
+td.n,th.n{text-align:right;width:56px}
+td.n{font-weight:700}
+td.cero{color:var(--muted);font-weight:400;opacity:.6}
+tr.cat td{background:var(--bg);font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600;padding-top:10px}
+tr.tot td{border-bottom:0;font-weight:800}
+.chk{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted)}
+.chk input{width:18px;height:18px;accent-color:var(--honey)}
+.peds{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.ped{border:1px solid var(--line);border-radius:12px;padding:10px 12px;display:grid;gap:4px;border-left:4px solid var(--c)}
+.ped .h{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:baseline}
+.ped .pl{font-weight:700;color:var(--c)}
+.ped .num{font-variant-numeric:tabular-nums;color:var(--muted);font-size:13px}
+.ped .hr{margin-left:auto;font-variant-numeric:tabular-nums;color:var(--muted);font-size:13px}
+.ped .pr{font-size:14px}
+.ped .tt{font-weight:700;font-variant-numeric:tabular-nums}
+.ped .nt{font-size:13px;color:var(--bad)}
+.vacio{color:var(--muted);text-align:center;padding:22px 12px;border:1px dashed var(--line);border-radius:12px}
+.filtros{display:flex;flex-wrap:wrap;gap:6px}
+.filtros button{padding:6px 12px;font-size:13px}
+.filtros button[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.msg{font-size:14px;font-weight:600}
+.msg.ok{color:var(--ok)} .msg.bad{color:var(--bad)}
+.clave{max-width:420px;margin:40px auto;display:grid;gap:12px;text-align:center}
+.clave input{border:1px solid var(--line);background:var(--surface);border-radius:12px;padding:12px;font-size:18px;text-align:center;letter-spacing:.08em;text-transform:uppercase}
+.hint{color:var(--muted);font-size:13px}
+.uber{--c:var(--uber)} .didi{--c:var(--didi)} .rappi{--c:var(--rappi)}
+</style>
+</head>
+<body>
+
+<section id="vClave" class="clave" hidden>
+  <h1 style="justify-content:center"><i aria-hidden="true"></i>Registro Delivery</h1>
+  <p class="hint">Escribe la clave de la sucursal. Es la misma que pusiste en las tabletas y solo se pide una vez en este teléfono.</p>
+  <label for="claveIn" class="hint">Clave de la sucursal</label>
+  <input id="claveIn" autocomplete="off" autocapitalize="characters" placeholder="BEES-XXXX-XXXX">
+  <button class="primary" id="btnClave">Entrar</button>
+  <p class="msg bad" id="claveMsg"></p>
+</section>
+
+<div id="vApp" hidden>
+  <header class="top">
+    <div class="top-in">
+      <h1><i aria-hidden="true"></i>Registro Delivery</h1>
+      <div class="dia">
+        <button id="dAnt" aria-label="Día anterior">◀</button>
+        <input type="date" id="dIn" aria-label="Día">
+        <button id="dSig" aria-label="Día siguiente">▶</button>
+        <button id="dHoy">Hoy</button>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <div class="estado" id="estado"><span><span class="p"></span><span id="estadoTxt">Cargando…</span></span><button id="btnAct">Actualizar</button></div>
+
+    <div class="stats" id="stats"></div>
+
+    <section class="panel" aria-labelledby="tCon">
+      <div class="row">
+        <h2 id="tCon">Concentrado</h2>
+        <label class="chk" for="todos"><input type="checkbox" id="todos"> Ver todos los productos</label>
+      </div>
+      <div id="con"></div>
+    </section>
+
+    <section class="panel" aria-labelledby="tPed">
+      <div class="row">
+        <h2 id="tPed">Pedidos</h2>
+        <div class="filtros" id="filtros"></div>
+      </div>
+      <ul class="peds" id="peds"></ul>
+    </section>
+
+    <section class="panel" aria-labelledby="tXl">
+      <h2 id="tXl">Excel del día</h2>
+      <p class="hint">Genera el mismo formato REGISTRO DELIVERY que descargan las tabletas, con lo registrado hasta este momento.</p>
+      <div class="row" style="justify-content:flex-start"><button class="primary" id="btnXl">Descargar Excel</button><span class="msg" id="xlMsg"></span></div>
+      <p class="hint" id="xlRep"></p>
+    </section>
+
+    <p class="hint">Se actualiza solo cada minuto. <button id="btnSalir" style="padding:4px 10px;font-size:12px">Cerrar sesión en este teléfono</button></p>
+  </main>
+</div>
+
+<script src="jszip.min.js"></script>
+<script src="plantilla.js"></script>
+<script src="registro.js"></script>
+<script>
+(function(){
+'use strict';
+const SB_URL = 'https://iwjhmdeffwhqxmcivfso.supabase.co/rest/v1/delivery_pedidos';
+const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml3amhtZGVmZndocXhtY2l2ZnNvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQwNjE0MTUsImV4cCI6MjEwOTYzNzQxNX0.b36fWyQxjLwukD8FWis7ef-uynLBoO_tYWTKubaJQbM';
+const RENGLONES = ['BEE CHEESY WINGS','BEE CLASSIC','BEE MEAT MANIA','BEE MEXICAN PIZZA','BEE MIX MANÍA','BEE TACO PIZZA','BEE TROPICAL PUFF','BEE VEGGIE','DOUBLE CHEESE','HAWAIIAN BEE','SUPREME BEE','TROPICAL BEE SPICY','XTREME BEE','PIZZA QUEEN BEE',
+  'BEE ANTOJO','BEE CHEESY PACK','BEE CRUNCH COMBO','BEE DOUBLE DATE','BEE HAWAIIAN COMBO','BEE PIZZA & CHICKEN','BEE TROPICAL FEAST','COMBO QUEEN BEE','COMBO BEE DUO','COMBO PIBIL BEE',
+  'BEE CHEESY BOMBS (8 PZ)','BEE CRUST','BEE CHEESY BOMBS (12 PZ)',"BEE'S CHICKEN",'BEES WINGS','BUMBLEBEE HAWAIANOS','BUMBLEBEE PEPPERONI','ORILLA EXTRA DE QUESO','PAPAS GAJO',
+  'CANELA DIPS','SWEET BEE BITES (12 PZ)','SWEET BEE BITES (8 PZ)',
+  'AGUA MINERAL 600 ML','AGUA NATURAL 600 ML','COCA COLA 2 L','COCA COLA REGULAR 600 ML','COCA COLA LIGHT 600 ML','COCA COLA ZERO 600 ML','FANTA 2 L','FANTA 600 ML','FUZE TEA DURAZNO','FUZE TEA FRUTOS ROJOS','FUZE TEA LIMÓN','SIDRAL MUNDET 2 L','SIDRAL MUNDET 600 ML','SPRITE 2 L','SPRITE 600 ML','JAMAICA 500 ML','LIMÓN CON CHÍA 500 ML','MARACUYÁ 500 ML','HORCHATA',
+  'ADEREZO BBQ','ADEREZO BÚFALO','ADEREZO MANGO HABANERO','ADEREZO RANCH','BEE SAUCE','BEE SAUCE CHIPOTLE','DIP QUESO'];
+const CATS = [['Pizzas',6,19],['Combos / promos',20,29],['Complementos',30,38],['Postres',39,41],['Bebidas',42,60],['Dips / aderezos',61,67]];
+const PL = [['uber','Uber'],['didi','DiDi'],['rappi','Rappi']];
+
+const $ = id => document.getElementById(id);
+const store = {
+  get(k, d){ try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e){ return d; } },
+  set(k, v){ try { localStorage.setItem(k, JSON.stringify(v)); } catch(e){} },
+  del(k){ try { localStorage.removeItem(k); } catch(e){} }
+};
+const pad = n => String(n).padStart(2,'0');
+const isoDia = d => d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());
+const hoy = () => isoDia(new Date());
+const hhmm = t => { const d = new Date(t); return pad(d.getHours())+':'+pad(d.getMinutes()); };
+const nombreDia = iso => { const [y,m,d] = iso.split('-').map(Number); return new Date(y,m-1,d).toLocaleDateString('es-MX',{weekday:'long', day:'numeric', month:'long'}); };
+const masDias = (iso, n) => { const [y,m,d] = iso.split('-').map(Number); return isoDia(new Date(y, m-1, d+n)); };
+const esc = s => String(s??'').replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const dinero = v => '$' + (Number(v)||0).toLocaleString('es-MX',{minimumFractionDigits:2, maximumFractionDigits:2});
+
+let clave = store.get('bees.clave', '');
+let dia = hoy(), filas = [], filtro = '', timer = null;
+
+async function sb(query, opts){
+  return fetch(SB_URL + query, Object.assign({headers:{apikey:SB_KEY, Authorization:'Bearer '+SB_KEY, 'x-bees-clave':clave}}, opts||{}));
+}
+async function probarClave(c){
+  // Con una clave incorrecta la base responde vacía; se comprueba escribiendo y borrando una marca de prueba.
+  const id = 'prueba|' + Date.now();
+  const h = {apikey:SB_KEY, Authorization:'Bearer '+SB_KEY, 'x-bees-clave':c, 'Content-Type':'application/json', Prefer:'return=minimal'};
+  const w = await fetch(SB_URL, {method:'POST', headers:h, body: JSON.stringify({id, dia:hoy(), plat:'resv', code:'prueba', items:[]})});
+  if (!w.ok) return false;
+  await fetch(SB_URL + '?id=eq.' + encodeURIComponent(id), {method:'DELETE', headers:h});
+  return true;
+}
+
+function mostrar(){
+  $('vClave').hidden = !!clave;
+  $('vApp').hidden = !clave;
+  if (clave) { $('dIn').value = dia; cargar(); clearInterval(timer); timer = setInterval(cargar, 60000); }
+}
+
+async function cargar(){
+  try {
+    const r = await sb('?select=*&dia=eq.' + dia + '&plat=neq.resv&order=created_at.asc');
+    if (!r.ok) throw new Error('La base respondió ' + r.status);
+    filas = await r.json();
+    $('estado').className = 'estado';
+    $('estadoTxt').textContent = (dia === hoy() ? 'Hoy, ' : '') + nombreDia(dia) + ' · actualizado ' + hhmm(Date.now());
+  } catch(e) {
+    $('estado').className = 'estado err';
+    $('estadoTxt').textContent = 'Sin conexión. Se muestra lo último que se cargó.';
+  }
+  pintar();
+}
+
+function pintar(){
+  const tabla = new Map(), ped = {uber:0,didi:0,rappi:0}, venta = {uber:0,didi:0,rappi:0};
+  for (const f of filas) {
+    if (!(f.plat in ped)) continue;
+    ped[f.plat]++; venta[f.plat] += Number(f.total) || 0;
+    for (const l of (f.lineas||[])) {
+      const t = tabla.get(l.excel) || {uber:0,didi:0,rappi:0};
+      t[f.plat] += l.qty; tabla.set(l.excel, t);
+    }
+  }
+  const suma = t => t.uber + t.didi + t.rappi;
+  let marcas = 0; tabla.forEach(t => marcas += suma(t));
+  const tot = ped.uber + ped.didi + ped.rappi;
+  $('stats').innerHTML = `<div class="stat total"><span>Pedidos</span><b>${tot}</b><small>${dinero(venta.uber+venta.didi+venta.rappi)}</small></div>` +
+    PL.map(([k,n]) => `<div class="stat ${k}" style="--c:var(--${k})"><span>${n}</span><b>${ped[k]}</b><small>${dinero(venta[k])}</small></div>`).join('');
+
+  const todos = $('todos').checked;
+  if (!tot && !todos) $('con').innerHTML = `<div class="vacio">Sin pedidos ${dia === hoy() ? 'todavía hoy' : 'ese día'}.</div>`;
+  else {
+    let h = '<div class="tw"><table><thead><tr><th>Producto</th>' + PL.map(([,n]) => `<th class="n">${n}</th>`).join('') + '<th class="n">Total</th></tr></thead><tbody>';
+    for (const [cat,a,b] of CATS) {
+      const fs = RENGLONES.slice(a-6, b-5).map(n => [n, tabla.get(n) || {uber:0,didi:0,rappi:0}]).filter(([,t]) => todos || suma(t));
+      if (!fs.length) continue;
+      h += `<tr class="cat"><td colspan="5">${cat}</td></tr>`;
+      h += fs.map(([n,t]) => `<tr><td>${esc(n)}</td>${PL.map(([k]) => `<td class="n${t[k]?'':' cero'}">${t[k]}</td>`).join('')}<td class="n">${suma(t)}</td></tr>`).join('');
+    }
+    h += '<tr class="tot"><td>Total</td>' + PL.map(([k]) => { let s = 0; tabla.forEach(t => s += t[k]); return `<td class="n">${s}</td>`; }).join('') + `<td class="n">${marcas}</td></tr></tbody></table></div>`;
+    $('con').innerHTML = h;
+  }
+
+  $('filtros').innerHTML = [['','Todas'], ...PL].map(([k,n]) => `<button aria-pressed="${filtro===k}" data-f="${k}">${n}</button>`).join('');
+  $('filtros').querySelectorAll('[data-f]').forEach(b => b.onclick = () => { filtro = b.dataset.f; pintar(); });
+  const lista = filas.filter(f => f.plat in ped && (!filtro || f.plat === filtro)).slice().reverse();
+  $('peds').innerHTML = lista.length ? lista.map(f => {
+    const n = (PL.find(p => p[0] === f.plat) || [, f.plat])[1];
+    const hr = f.created_at && isoDia(new Date(f.created_at)) === f.dia ? hhmm(f.created_at) : 'capturado después';
+    return `<li class="ped ${f.plat}"><div class="h"><span class="pl">${n}</span><span class="num">#${esc(f.code)}</span>${f.cust?`<span>${esc(f.cust)}</span>`:''}<span class="hr">${hr}</span></div>
+      <div class="pr">${(f.lineas||[]).map(l => (l.qty>1?l.qty+' ':'')+esc(l.excel)).join(' · ') || '<span class="hint">Sin productos del formato</span>'}</div>
+      <div class="h"><span class="tt">${f.total!=null?dinero(f.total):'—'}</span>${f.total_nota?`<span class="hint">${esc(f.total_nota)}</span>`:''}</div>
+      ${f.nota?`<div class="nt">${esc(f.nota)}</div>`:''}</li>`;
+  }).join('') : `<li class="vacio">Sin pedidos${filtro ? ' de ' + (PL.find(p=>p[0]===filtro)||[])[1] : ''}.</li>`;
+}
+
+async function descargar(){
+  const m = $('xlMsg'); m.textContent = 'Armando…'; m.className = 'msg';
+  try {
+    await cargar();
+    const orders = filas.filter(f => ['uber','didi','rappi'].includes(f.plat)).map(f => ({plat:f.plat, code:f.code, cust:f.cust, items:f.items||[], status:'registrado',
+      createdAt: Date.parse(f.created_at) || Date.now(),
+      note: [f.total!=null ? 'Total '+dinero(f.total)+(f.total_nota?' ('+f.total_nota+')':'') : '', f.nota||''].filter(Boolean).join(' · ')}));
+    const {bytes, report} = await Registro.buildXlsx(JSZip, window.TEMPLATE_B64, orders, dia, {markParts:true, lateMin:10, fmt:hhmm});
+    const nombre = 'REGISTRO_DELIVERY_' + dia + '.xlsx';
+    const url = URL.createObjectURL(new Blob([bytes], {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}));
+    const a = document.createElement('a'); a.href = url; a.download = nombre; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 30000);
+    m.textContent = 'Listo: ' + nombre; m.className = 'msg ok';
+    $('xlRep').textContent = `${report.total} marcas en total.` + (report.missing.length ? ' Sin renglón en el formato (no se marcaron): ' + report.missing.map(x => x.qty+' '+x.name).join(', ') + '.' : '');
+  } catch(e) { m.textContent = 'No se pudo armar el Excel: ' + (e && e.message || e); m.className = 'msg bad'; }
+}
+
+$('btnClave').onclick = async () => {
+  const c = $('claveIn').value.trim().toUpperCase();
+  if (!c) return;
+  $('claveMsg').textContent = 'Revisando…';
+  try {
+    if (!(await probarClave(c))) throw new Error();
+    clave = c; store.set('bees.clave', c); $('claveMsg').textContent = ''; mostrar();
+  } catch(e) { $('claveMsg').textContent = 'Esa clave no funciona o no hay internet. Revisa y vuelve a intentar.'; }
+};
+$('claveIn').onkeydown = e => { if (e.key === 'Enter') $('btnClave').click(); };
+$('dIn').onchange = e => { dia = e.target.value || hoy(); cargar(); };
+$('dAnt').onclick = () => { dia = masDias(dia, -1); $('dIn').value = dia; cargar(); };
+$('dSig').onclick = () => { dia = masDias(dia, 1); $('dIn').value = dia; cargar(); };
+$('dHoy').onclick = () => { dia = hoy(); $('dIn').value = dia; cargar(); };
+$('btnAct').onclick = cargar;
+$('todos').onchange = pintar;
+$('btnXl').onclick = descargar;
+$('btnSalir').onclick = () => { store.del('bees.clave'); clave = ''; clearInterval(timer); mostrar(); };
+document.addEventListener('visibilitychange', () => { if (!document.hidden && clave) cargar(); });
+mostrar();
+})();
+</script>
+</body>
+</html>

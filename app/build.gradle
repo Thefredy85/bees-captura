@@ -10,8 +10,8 @@ android {
         applicationId 'com.beespizza.captura'
         minSdk 26          // Huawei MediaPad M5 lite (Android 8.0)
         targetSdk 34
-        versionCode 3
-        versionName '0.3'
+        versionCode 4
+        versionName '0.4'
     }
 
     // Misma firma en cada compilación, para poder actualizar la app sin desinstalarla
