@@ -498,6 +498,10 @@ function pintarAjustes(){
     : 'Toca el botón, entra a «Bee\'s Captura · avisos de pedidos» y actívalo. Solo lee las notificaciones de las apps de pedidos.';
   $('ajAvisosBtn').hidden = !APP || !conAvisos || avOn;
   if (APP && clave && window.Android.guardarClave) window.Android.guardarClave(clave);
+  if (clave && SYNC()) sb('POST', 'rpc/alertas_equipo', '', {}).then(r => r.ok ? r.json() : null).then(l => {
+    if (!Array.isArray(l)) return;
+    $('ajEquipo').innerHTML = l.length ? l.map(p => '• ' + esc(p.nombre) + (p.admin ? ' <span class="chip ok">administrador</span>' : '')).join('<br>') : 'Nadie todavía.';
+  }).catch(() => {});
   $('ajVersion').textContent = 'Versión ' + (est.version || 'web') + (est.web ? ' · lector ' + est.web : '') + '. Se actualiza sola cuando hay internet.';
 }
 $('ajAcc').onclick = () => window.Android.abrirAccesibilidad();
