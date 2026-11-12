@@ -80,6 +80,9 @@ const UBER_HEAD = /^(.+?)\s*[•·]\s*([A-Z0-9]{4,8})$/;
 const isNumLine = l => /^#\s?\d{6,}$/.test(l) || UBER_HEAD.test(l);
 const SOLO_QTY = /^[0-9lIi|]{1,2}\s*[xX×]$/;
 const GUION = /^[–—-]+$/;
+const DOS_PRECIOS = new RegExp('^'+PRICE+'\\s+'+PRICE+'$', 'i');
+const ETQ_TOTAL = /^(subtotal|oferta especial|total|descuentos?|promoci[oó]n|propina|tarifa|cargo|impuestos?|iva|ajuste de la cuota.*|cuota de servicio.*)$/i;
+const VALOR = /^\(?-?(MXN\s*|MX|Mex)?\$?\s?[\d,]+\.\d{1,2}\)?$/i;
 // Lo leído en pantalla puede venir partido: "1x" / "Pizza" / "$329.00". Aquí se vuelve a juntar.
 function prepass(lines){
   const out = [];
@@ -87,6 +90,12 @@ function prepass(lines){
     let l = lines[i];
     if (SOLO_QTY.test(l) && lines[i+1]) l = l+' '+lines[++i];
     if (GUION.test(l)) continue;
+    // Uber: «Subtotal / Oferta especial / Total» y abajo sus importes en el mismo orden → se emparejan
+    if (ETQ_TOTAL.test(l)) {
+      let k = i; while (k < lines.length && ETQ_TOTAL.test(lines[k])) k++;
+      const n = k - i; let v = 0; while (v < n && lines[k+v] && VALOR.test(lines[k+v])) v++;
+      if (n > 1 && v === n) { for (let a=0; a<n; a++) out.push(lines[i+a]+' '+lines[k+a]); i = k+n-1; continue; }
+    }
     const rq = l.match(RESV_QTY);
     if (rq && out.length && !ITEM.test(out[out.length-1]) && !MONEY_ONLY.test(out[out.length-1])) {
       const nombre = out.pop(); const q = parseInt(rq[1],10) || 1; const pu = parseFloat(rq[2].replace(/,/g,''));
@@ -103,6 +112,7 @@ function prepass(lines){
       let j = i+1; const prices = [];
       if (lines[j] && /^promoci[oó]n$/i.test(lines[j])) { l = l+' Promoción'; j++; i++; }
       else if (lines[j] && /^(combo|nuevo|m[aá]s vendido)$/i.test(lines[j])) { j++; i++; }   // etiqueta junto al nombre (DiDi)
+      if (lines[j] && DOS_PRECIOS.test(lines[j])) { prices.push(lines[j]); j++; }
       while (prices.length < 2 && lines[j] && MONEY_ONLY.test(lines[j]) && !/^\(/.test(lines[j])) { prices.push(lines[j]); j++; }
       if (prices.length) { l = l+' '+prices.join(' '); i = j-1; }
     }
@@ -120,7 +130,7 @@ const money = s => { const m = String(s).match(MONEY); return m ? parseFloat(m[1
 function isHeader(l){
   if (ITEM.test(l) || IGNORE.test(l)) return false;
   if (/^(comentarios?|notas del pedido|cliente)/i.test(l)) return false;
-  if (/^(elige|desea|selecciona|escoge|agrega|quieres)\b/i.test(l)) return true;
+  if (/^(elige|desear?|selecciona|escoge|agrega|quieres)\b/i.test(l) || (/^[¿A-Za-zÁÉÍÓÚÑáéíóúñ]/.test(l) && /\?$/.test(l) && l.length < 60)) return true;
   const letters = l.replace(/[^A-Za-zÁÉÍÓÚÑáéíóúñ]/g,'');
   return letters.length >= 4 && l.length < 60 && l === l.toUpperCase() && !MONEY.test(l);
 }
@@ -199,7 +209,11 @@ function parseSegment(lines, dict){
       }
       continue;
     }
-    if (isHeader(l)) { inMod = true; mode=''; continue; }
+    if (isHeader(l)) { inMod = /^(elige|desear?|selecciona|escoge|agrega|quieres)\b|\?$|:$/i.test(l) ? 'pregunta' : true; mode=''; continue; }
+    if (inMod === 'pregunta' && cur && !MONEY_ONLY.test(l) && /[A-Za-zÁÉÍÓÚÑáéíóúñ]{3}/.test(l) && l.length < 60) {
+      const pr = lines[i+1] && MONEY_ONLY.test(lines[i+1]) ? money(lines[i+1]) : null; if (pr != null) i++;
+      cur.mods.push({qty:1, name:l, price:pr, map:resolve(l, dict)}); inMod = false; lastWasMod = true; continue;
+    }
     if (mode==='orderNote') { seg.orderNotes.push(l); mode=''; continue; }
     if (mode==='comment') { if (cur && !cur.notes.includes(l)) cur.notes.push(l); continue; }
     if (MONEY_ONLY.test(l)) continue;
@@ -254,7 +268,7 @@ function parseOrder(text, hint, dict){
     }
   }
   o.readQty = o.products.reduce((a,p)=>a+p.qty,0);
-  o.sum = o.products.reduce((a,p)=>a+(p.price||0)+p.mods.reduce((b,md)=>b+(md.price||0),0),0);
+  o.sum = o.products.reduce((a,p)=>a+(p.price||0)+(o.platform === 'Uber' ? 0 : p.mods.reduce((b,md)=>b+(md.price||0),0)),0);
   return o;
 }
 
