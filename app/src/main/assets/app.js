@@ -51,12 +51,13 @@ function filaAEntrada(r){
   return {id:r.id, dia:r.dia, platform:PNAME[r.plat]||r.plat, number:r.code, client:r.cust||'', created:r.created_at,
     time: r.created_at && isoDia(new Date(r.created_at)) === r.dia ? hhmm(r.created_at) : '',
     items:r.items||[], lines:r.lineas||[], total:r.total, totalNote:r.total_nota||'', sum:r.suma,
-    notes: r.nota ? [r.nota] : [], pendiente:false};
+    notes: r.nota ? [r.nota] : [], pendiente:false, tarde:!!r.tarde, por:r.por||''};
 }
 function entradaAFila(e){
   const f = {id:e.id, dia:e.dia, plat:PKEY[e.platform], code:e.number, cust:e.client||null, items:e.items, lineas:e.lines,
     total:e.total, total_nota:e.totalNote||null, suma:e.sum, nota:(e.notes||[]).join(' · ')||null,
     tableta:e.platform||null, texto:e.texto||null, created_at:e.created};
+  if (e.tarde) { f.tarde = true; f.por = e.por || null; }
   if (!f.created_at) delete f.created_at;
   return f;
 }
@@ -80,6 +81,8 @@ async function refrescar(day = viewDay){
     remoto[day] = await r.json();
     const rr = await sb('GET', 'delivery_resumen', '?select=*&dia=eq.'+day);
     if (rr.ok) remotoRes[day] = await rr.json();
+    const ra = await sb('GET', 'delivery_ajustes', '?select=valor&clave=eq.captura');
+    if (ra.ok) { const a = await ra.json(); if (a[0]) ponerCapturaLocal(a[0].valor !== false); }
     syncInfo = {ok:true, txt:'Actualizado ' + hhmm(Date.now())};
   } catch(e) { syncInfo = {ok:false, txt:'Sin conexión: se guarda aquí y se sube después'}; }
   pintarSync();
@@ -132,7 +135,7 @@ function ir(v){
 document.querySelectorAll('.dock button').forEach(b => b.onclick = () => ir(b.dataset.v));
 
 /* ---------- Confirmar ---------- */
-const dayOf = () => (order && order.date) || hoy();
+const dayOf = () => modoReg ? modoReg.dia : ((order && order.date) || hoy());
 const idDe = (dia, platform, number) => dia + '|' + PKEY[platform] + '|' + String(number).trim();
 function saveDict(){ const c = {}; for (const k in dict) if (JSON.stringify(dict[k]) !== JSON.stringify(DEFAULT_DICT[k])) c[k] = dict[k]; store.set('bees.dict', c); }
 function selector(key){
@@ -154,16 +157,20 @@ function pintarConfirmar(){
   if (estadoConf === 'resumen' && resumen) { el.innerHTML = pantallaResumen(); enlazarResumen(); return; }
   if (estadoConf === 'pedido' && order) { el.innerHTML = pantallaPedido(); enlazarPedido(); return; }
   el.innerHTML = pantallaVacia();
-  const b = $('irAj'); if (b) b.onclick = abrirAjustes;
+  const b = $('irAj'); if (b) b.onclick = abrirAjustesConClave;
 }
 function pantallaVacia(){
   let est = {}; try { est = APP ? JSON.parse(window.Android.estado()) : {lectura:true}; } catch(e) {}
   const listo = !!est.lectura, conClave = !!clave;
   const log = getLog(hoy()), ult = log[log.length-1];
+  if (!capturaOn) return `<div class="vacio">
+    <div class="big hex" aria-hidden="true" style="background:var(--line)"><svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="#6c6556" stroke-width="2.2" stroke-linecap="round"><path d="M9 6v12M15 6v12"></path></svg></div>
+    <h2>La captura de pedidos está desactivada</h2>
+    <p>Un supervisor la apagó para todas las tabletas. Los avisos de pedidos a Telegram siguen funcionando.</p></div>`;
   let h = `<div class="vacio">
     <div class="big hex late" aria-hidden="true"><svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="#3a2c00" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7V5a1 1 0 011-1h2M17 4h2a1 1 0 011 1v2M20 17v2a1 1 0 01-1 1h-2M7 20H5a1 1 0 01-1-1v-2"></path><path d="M8 12h8"></path></svg></div>
-    <h2>${listo && conClave ? 'Abre un pedido y toca el hexágono amarillo' : 'Falta poco para empezar'}</h2>
-    <p>${listo && conClave ? 'Funciona encima de Uber, DiDi, Rappi y Reservándonos. Al cierre, captura también el resumen de ventas de cada app.' : 'Completa estos pasos una sola vez en esta tableta.'}</p>`;
+    <h2>${modoReg ? 'Abre el pedido del ' + esc(nombreDia(modoReg.dia)) + ' y toca el hexágono' : listo && conClave ? 'Abre un pedido y toca el hexágono amarillo' : 'Falta poco para empezar'}</h2>
+    <p>${modoReg ? 'Estás en modo registro: lo que captures se guarda en ese día, sin avisos a Telegram ni petición de foto.' : listo && conClave ? 'Funciona encima de Uber, DiDi, Rappi y Reservándonos. Al cierre, captura también el resumen de ventas de cada app.' : 'Completa estos pasos una sola vez en esta tableta.'}</p>`;
   if (!listo || !conClave) {
     h += `<div class="pasos">
       <div class="paso ${listo?'ok':'falta'}"><b>1. Activar el botón Capturar</b><span class="hint">${listo ? 'Listo.' : 'Se activa en Accesibilidad.'}</span></div>
@@ -176,66 +183,98 @@ function pantallaVacia(){
   return h + '</div>';
 }
 function cabeceraPed(){
-  const color = PCOLOR[order.platform] || 'var(--muted)';
-  const plat = order.platform ? `<span class="plat" style="background:${color}">${esc(order.platform)}</span>`
+  const plat = order.platform ? `<span class="plat" style="background:${PCOLOR[order.platform]}">${esc(order.platform)}</span>`
     : `<select id="oPlat" aria-label="Plataforma"><option value="">¿De qué app es?</option>${PLATS.map(p=>`<option>${p}</option>`).join('')}</select>`;
   const num = order.number ? `<div class="ped-num num">#${esc(order.number)}</div>` : `<div class="ped-num"><input id="oNum" placeholder="# de pedido" aria-label="Número de pedido"></div>`;
   return `${plat}${num}`;
 }
+const firma = items => (items||[]).map(i => (i.qty||1) + '×' + norm(String(i.n||'')) + (i.orilla ? '+o' : '')).sort().join('|');
+/** Duplicado = mismo día, plataforma, número, productos y total. Mismo número con otros productos = pedido aparte. */
+function buscarDup(day){
+  if (!order || !order.platform || !order.number) return {igual:null, otros:[]};
+  const f = firma(excelLines(order).items), num = String(order.number).trim();
+  const otros = getLog(day).filter(o => o.platform === order.platform && String(o.number).trim() === num);
+  const igual = otros.find(o => firma(o.items) === f && (o.total == null || order.total == null || Math.abs(Number(o.total) - Number(order.total)) < 0.5)) || null;
+  return {igual, otros};
+}
+const diaCorto = iso => { const [y,m,d] = iso.split('-').map(Number); return new Date(y,m-1,d).toLocaleDateString('es-MX',{weekday:'short', day:'numeric', month:'short'}).replace(/\./g,''); };
+let fechaOk = false, verInfo = false;
 function pantallaPedido(){
-  const xl = excelLines(order), day = dayOf();
-  const dup = !!(order.platform && order.number) && getLog(day).some(o => o.id === idDe(day, order.platform, order.number));
-  const ex = EN_EXCEL(order.platform);
-  let al = '';
-  for (const a of order.alerts) al += `<div class="banner bad">${esc(a)}</div>`;
-  if (dup) al += `<div class="banner bad">Este pedido ya está registrado${SYNC() ? ' (puede ser de otra tableta)' : ''}.</div>`;
-  if (order.mixedNumbers) al += '<div class="banner bad">Las capturas son de pedidos distintos. Captura un pedido a la vez.</div>';
-  if (order.numDudoso) al += '<div class="banner warn">En la pantalla se ven varios números de pedido. Revisa que sea el del pedido abierto.</div>';
-  if (order.expected && order.readQty < order.expected) al += `<div class="banner warn">El pedido dice ${order.expected} productos y se leyeron ${order.readQty}. Vuelve a capturar con todo el pedido a la vista.</div>`;
-  else if (order.expected && order.readQty > order.expected) al += `<div class="banner warn">Se leyeron ${order.readQty} productos y el pedido dice ${order.expected}. Revisa antes de registrar.</div>`;
-  if (xl.pending) al += `<div class="banner warn">Hay ${xl.pending} producto${xl.pending>1?'s':''} que la app no conoce. Elige a cuál corresponde y lo recordará.</div>`;
-
+  const xl = excelLines(order), day = dayOf(), ex = EN_EXCEL(order.platform);
+  const dup = buscarDup(day);
+  const pend = [];   // cosas que revisar antes de registrar: [texto, id del elemento]
+  if (!order.platform) pend.push(['Elige la plataforma', 'oPlat']);
+  if (!order.number) pend.push(['Escribe el número de pedido', 'oNum']);
+  if (order.mixedNumbers) pend.push(['Capturas de pedidos distintos', 'chMix']);
+  if (xl.pending) pend.push([pl(xl.pending, 'producto') + ' sin reconocer', 'itNuevo']);
+  const fechaDistinta = modoReg && order.date && order.date !== modoReg.dia;
+  if (fechaDistinta && !fechaOk) pend.push(['La pantalla dice otra fecha', 'chFecha']);
+  const chips = [];
+  for (const a of order.alerts) chips.push(`<span class="chip bad">⚠ ${esc(a)}</span>`);
+  if (order.mixedNumbers) chips.push('<span class="chip bad" id="chMix">⚠ Las capturas son de pedidos distintos: captura uno a la vez</span>');
+  if (dup.igual) chips.push(`<span class="chip bad">✓ Ya registrado${dup.igual.time ? ' a las ' + esc(dup.igual.time) : ''}${SYNC() ? ' (puede ser de otra tableta)' : ''}</span>`);
+  else if (dup.otros.length) chips.push(`<span class="chip warn">Ya hay ${dup.otros.length > 1 ? dup.otros.length + ' pedidos' : 'un pedido'} ${esc(order.platform)} #${esc(order.number)} este día con otros productos: este se registra aparte</span>`);
+  if (fechaDistinta) chips.push(`<span class="chip ${fechaOk ? 'past' : 'warn'}" id="chFecha">🗓 La pantalla dice ${esc(nombreDia(order.date))}; se registrará en ${esc(nombreDia(modoReg.dia))}${fechaOk ? ' ✓' : ' <button type="button" id="fechaSi">Sí, registrar ahí</button>'}</span>`);
+  if (order.numDudoso) chips.push('<span class="chip warn">Se ven varios números de pedido: revisa que sea el abierto</span>');
+  if (order.expected && order.readQty !== order.expected) chips.push(`<span class="chip warn">El pedido dice ${order.expected} productos y se leyeron ${order.readQty}</span>`);
+  if (order.client) chips.push(`<span class="chip">Cliente: ${esc(order.client)}</span>`);
+  if (!modoReg && day !== hoy()) chips.push(`<span class="chip">Día: ${esc(nombreDia(day))}</span>`);
+  let primerNuevo = true;
   const filas = order.products.map(p => {
     const m = p.map, combo = m && COMBO_NAMES.has(m.excel);
-    const nuevo = !m, nocuenta = m && (m.tipo === 'incluido' || m.tipo === 'ignorar');
-    let nombre = m ? (m.tipo === 'segun-opcion' ? 'Bee Water ' + (p.mods.find(md => md.map && md.map.sabor)?.map.excel.replace(/^Bee Water \(|\)$/g,'') || '') : (m.excel || p.name)) : p.name;
-    const sub = [p.name !== nombre ? 'Leído: ' + p.name : '', p.price != null ? dinero(p.price) : ''].filter(Boolean).join(' · ');
+    const nuevo = !m || p.mods.some(md => !md.map), nocuenta = m && (m.tipo === 'incluido' || m.tipo === 'ignorar');
+    const nombre = m ? (m.tipo === 'segun-opcion' ? 'Bee Water ' + (p.mods.find(md => md.map && md.map.sabor)?.map.excel.replace(/^Bee Water \(|\)$/g,'') || '') : (m.excel || p.name)) : p.name;
     const piezas = combo ? (COMBO_FIJO[m.excel]||[]).concat(p.mods.filter(md => md.map && md.map.tipo !== 'incluido' && md.map.tipo !== 'ignorar' && !(COMBO_FIJO[m.excel]||[]).includes(md.map.excel)).map(md => md.map.excel)) : [];
-    const mods = !combo ? p.mods.filter(md => !(m && m.tipo === 'segun-opcion' && md.map && md.map.sabor)) : p.mods.filter(md => !md.map);
-    const modsTxt = mods.map(md => md.map ? (modStatus(md,p) === 'incluido' ? md.name + ' (incluido)' : '+ ' + md.map.excel) : md.name).join(' · ');
-    return `<li class="item ${combo?'combo':''} ${nuevo?'nuevo':''} ${nocuenta?'nocuenta':''}">
+    const mods = !combo ? p.mods.filter(md => md.map && !(m && m.tipo === 'segun-opcion' && md.map.sabor)) : [];
+    const detalle = [...piezas, ...mods.map(md => modStatus(md,p) === 'incluido' ? md.name + ' (incluido)' : '+ ' + md.map.excel)].join(' · ');
+    const leido = m && p.name !== nombre ? 'Leído: ' + p.name : '';
+    const idN = nuevo && primerNuevo ? (primerNuevo = false, ' id="itNuevo"') : '';
+    return `<li class="item ${combo?'combo':''} ${nuevo?'nuevo':''} ${nocuenta?'nocuenta':''}"${idN}>
       <div class="q hex num" aria-label="Cantidad">${p.qty}</div>
       <div style="min-width:0">
-        <div class="nom">${esc(nombre)}${combo ? ' <span class="chip" style="background:var(--honey-ink);color:var(--honey);font-size:12px;padding:3px 8px">COMBO</span>' : ''}</div>
-        ${sub ? `<div class="sub">${esc(sub)}</div>` : ''}
-        ${modsTxt ? `<div class="sub">${esc(modsTxt)}</div>` : ''}
-        ${piezas.length ? `<div class="piezas">${piezas.map(x => `<span>${esc(x)}</span>`).join('')}</div>` : ''}
+        <div class="nom">${esc(nombre)}${combo ? ' <span class="chip" style="background:var(--honey-ink);color:var(--honey);font-size:11px;padding:2px 8px">COMBO</span>' : ''}</div>
+        ${detalle ? `<div class="sub">${esc(detalle)}</div>` : ''}
+        ${leido && verInfo ? `<div class="sub">${esc(leido)}</div>` : ''}
         ${p.notes.map(n => `<div class="nota">Comentario: ${esc(n)}</div>`).join('')}
-        ${nuevo ? selector(norm(p.name)) : ''}
+        ${!m ? `<div class="sub" style="margin-top:4px">Leído: <b>${esc(p.name)}</b> · no está en el Excel</div>${selector(norm(p.name))}` : ''}
         ${p.mods.filter(md => !md.map).map(md => `<div class="sub" style="margin-top:6px">Opción nueva: <b>${esc(md.name)}</b></div>${selector(norm(md.name))}`).join('')}
       </div>
-      <div class="der">${nuevo ? '<span class="chip warn">Nuevo</span>' : nocuenta ? 'No cuenta' : ex ? '<b>✓ Excel</b>' : '<b>✓ Registro</b>'}</div>
+      <div class="der">${p.price != null ? `<div style="color:var(--ink);font-weight:700">${dinero(p.price)}</div>` : ''}${nuevo ? '<span class="chip warn">Nuevo</span>' : nocuenta ? 'No cuenta' : ex ? '<b>✓ Excel</b>' : '<b>✓ Registro</b>'}</div>
     </li>`;
   }).join('');
-  const can = order.platform && order.number && !xl.pending && !dup && order.products.length && !order.mixedNumbers;
+  const can = !pend.length && !dup.igual && order.products.length;
+  const etiqueta = dup.igual ? 'Ya registrado' : pend.length ? '⚠ Revisar ' + pend.length : modoReg ? 'Registrar en ' + diaCorto(modoReg.dia) : 'Registrar';
+  const cls = dup.igual || !order.products.length ? '' : pend.length ? 'rev' : modoReg ? 'past' : '';
   const sinR = xl.sinRenglon && xl.sinRenglon.length ? `<p class="hint" style="margin:0">Sin renglón en el formato (no se marca): ${xl.sinRenglon.map(l => esc(l.excel)).join(', ')}</p>` : '';
   const marcas = ex ? (xl.lines.length ? `<div class="marcas">${xl.lines.map(l => `<span>${l.qty>1?l.qty+' ':''}${esc(l.excel)}</span>`).join('')}</div>${sinR}` : (xl.pending ? '<p class="hint" style="margin:0">Elige los productos nuevos para ver qué se marca.</p>' : sinR || '<p class="hint" style="margin:0">Nada que marcar.</p>'))
     : '<p class="hint" style="margin:0">Reservándonos no va en el Excel: se guarda en el registro del día y en el corte, sin comisión.</p>';
-  return `<div class="conf">
-    <section class="card pedido entra">
-      ${al}
-      <div class="ped-head">${cabeceraPed()}<div style="flex:1"></div>${order.expected ? `<span class="chip ${order.readQty===order.expected?'ok':'warn'}">${order.readQty} de ${order.expected} productos${order.readQty===order.expected?' ✓':''}</span>` : ''}</div>
-      <div class="meta">${order.client ? `<span>Cliente <b>${esc(order.client)}</b></span>` : ''}<span>Día <b>${esc(nombreDia(day))}</b></span>${metodo ? `<span>Leído de la <b>${metodo === 'imagen' ? 'imagen' : 'pantalla'}</b></span>` : ''}${order.captures > 1 ? `<span><b>${order.captures}</b> pantallas unidas</span>` : ''}</div>
-      ${order.orderNotes.length ? `<div class="nota">Nota del pedido: ${esc(order.orderNotes.join(' · '))}</div>` : ''}
-      <ul class="items">${filas || '<li class="empty">No se encontraron productos en la pantalla. Vuelve a capturar con el pedido abierto.</li>'}</ul>
-    </section>
-    <aside class="lado">
-      <div class="dark entra2"><div class="eyebrow">Total${order.totalNote ? ' · ' + esc(order.totalNote) : ''}</div><div class="monto num">${dinero(order.total)}</div><div class="hint" style="color:#cfc6b1">Suma de productos ${dinero(order.sum)}</div></div>
-      <div class="card entra3" style="display:grid;gap:10px"><div class="eyebrow">${ex ? 'En el Excel se marca' : 'Registro del día'}</div>${marcas}</div>
-      <button class="btn primary ${can?'pulso':''}" id="btnReg" type="button" ${can?'':'disabled'}>${dup ? 'Ya registrado' : 'Registrar pedido'}</button>
-      ${APP ? `<button class="btn ghost" id="btnVolver" type="button">Volver${order.platform ? ' a ' + esc(order.platform) : ''}</button>` : ''}
-    </aside>
-  </div>`;
+  const nProd = order.products.reduce((a, p) => a + (Number(p.qty)||1), 0);
+  const ganancia = /ganancia/i.test(order.totalNote || '');
+  return `<div class="accion" style="--pc:${modoReg ? 'var(--past)' : PCOLOR[order.platform] || 'var(--honey)'}">
+      <div class="acc-id">${cabeceraPed()}</div>
+      <div class="acc-tot"><b class="num">${dinero(order.total)}</b><span>${ganancia ? 'Ganancia' : 'Total'} · ${pl(nProd, 'producto')}</span></div>
+      <div class="acc-btns">
+        ${APP ? `<button class="bt back" id="btnVolver" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M15 6l-6 6 6 6"></path></svg>Volver${order.platform ? ' a ' + esc(order.platform) : ''}</button>` : ''}
+        <button class="bt go ${cls}" id="btnReg" type="button" ${dup.igual || !order.products.length ? 'disabled' : ''}>${pend.length || dup.igual ? '' : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg>'}${etiqueta}</button>
+      </div>
+    </div>
+    ${chips.length ? `<div class="chips-fila">${chips.join('')}</div>` : ''}
+    <div class="conf2">
+      <section class="card pedido entra" style="padding:16px 18px;gap:10px">
+        <div class="eyebrow">Productos</div>
+        <ul class="items compact">${filas || '<li class="empty">No se encontraron productos en la pantalla. Vuelve a capturar con el pedido abierto.</li>'}</ul>
+        ${order.orderNotes.length ? `<div class="banner warn" style="font-size:14px">📝 Nota del pedido: ${esc(order.orderNotes.join(' · '))}</div>` : ''}
+      </section>
+      <aside class="lado">
+        <div class="card cuentas entra2" style="padding:16px 18px">
+          <div class="eyebrow" style="margin-bottom:6px">Cuentas</div>
+          <div class="kv"><span>Suma de productos</span><b class="num">${dinero(order.sum)}</b></div>
+          <div class="kv big"><span>${esc(order.totalNote ? order.totalNote.replace(/^./, c => c.toUpperCase()) : 'Total')}</span><span class="num">${dinero(order.total)}</span></div>
+        </div>
+        <div class="card entra3" style="display:grid;gap:10px;padding:16px 18px"><div class="eyebrow">${ex ? 'En el Excel se marca' : 'Registro del día'}</div>${marcas}</div>
+        <button class="info" type="button" id="btnInfo"><i>i</i>${esc(nombreDia(day))}${verInfo ? ` · leído de la ${metodo === 'imagen' ? 'imagen' : 'pantalla'}${order.captures > 1 ? ' · ' + order.captures + ' pantallas unidas' : ''}` : ' · detalles de lectura'}</button>
+      </aside>
+    </div>`;
 }
 function enlazarPedido(){
   const op = $('oPlat'); if (op) op.onchange = e => { order.platform = e.target.value; order._keep = true; pintarConfirmar(); };
@@ -245,40 +284,64 @@ function enlazarPedido(){
     dict[e.target.dataset.learn] = v === '__incluido' ? {excel:'', tipo:'incluido'} : v === '__ignorar' ? {excel:'', tipo:'ignorar'} : {excel:v, tipo: EXTRA_NAMES.has(v) ? 'extra' : 'producto'};
     saveDict(); order._keep = true; const keep = order; leer(); order.platform = keep.platform || order.platform; order.number = keep.number || order.number; pintarConfirmar(); pintarAjustes();
   });
-  $('btnReg').onclick = registrar;
+  const fs = $('fechaSi'); if (fs) fs.onclick = () => { fechaOk = true; pintarConfirmar(); };
+  $('btnInfo').onclick = () => { verInfo = !verInfo; pintarConfirmar(); };
+  $('btnReg').onclick = () => {
+    const b = $('btnReg');
+    if (b.classList.contains('rev')) {
+      // Lleva a lo primero que hay que revisar
+      const ids = ['oPlat','oNum','chMix','itNuevo','chFecha'], el = ids.map($).find(Boolean);
+      if (el) { el.scrollIntoView({behavior:'smooth', block:'center'}); el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash'); if (el.focus && /SELECT|INPUT/.test(el.tagName)) el.focus(); }
+      return;
+    }
+    registrar();
+  };
   const bv = $('btnVolver'); if (bv) bv.onclick = () => window.Android.volver();
 }
+let ultimoId = null;
 function registrar(){
-  const xl = excelLines(order), day = dayOf(), id = idDe(day, order.platform, order.number);
-  if (getLog(day).some(o => o.id === id)) { aviso('Este pedido ya está en el registro.', true); return; }
+  const xl = excelLines(order), day = dayOf(), dup = buscarDup(day);
+  if (dup.igual) { aviso('Este pedido ya está en el registro.', true); return; }
+  let id = idDe(day, order.platform, order.number);
+  const ids = new Set(getLog(day).map(o => o.id));
+  for (let k = 2; ids.has(id); k++) id = idDe(day, order.platform, order.number) + '|' + k;
   const now = new Date();
   const e = {id, dia:day, platform:order.platform, number:order.number, client:order.client||'', created:now.toISOString(),
     time: day === hoy() ? hhmm(now) : '', items:xl.items, lines:xl.lines.map(l => ({excel:l.excel, qty:l.qty})),
     total:order.total, totalNote:order.totalNote, sum:order.sum,
     notes:[...order.orderNotes, ...order.products.flatMap(p => p.notes), ...order.alerts], texto: texto.slice(0, 8000)};
+  if (modoReg) { e.tarde = true; e.por = modoReg.por; e.notes.push('Registrado después por ' + modoReg.por); }
   if (!EN_EXCEL(order.platform)) e.lines = xl.items.map(i => ({excel:i.n, qty:i.qty}));
   if (SYNC()) { setCola([...cola(), e]); subirCola(); }
   else { const log = store.get(logKey(day), []); log.push(e); store.set(logKey(day), log); }
-  ultimoMsg = `${order.platform} #${order.number} registrado` + (EN_EXCEL(order.platform) ? ` · ${pl(xl.lines.reduce((a,l)=>a+l.qty,0),'marca')} en el Excel` : '');
+  ultimoId = id;
+  if (modoReg) tocarModo();
+  ultimoMsg = `${order.platform} #${order.number} registrado` + (modoReg ? ' en ' + nombreDia(day) : '') + (EN_EXCEL(order.platform) ? ` · ${pl(xl.lines.reduce((a,l)=>a+l.qty,0),'marca')} en el Excel` : '');
   if (APP && window.Android.registrado) { try { window.Android.registrado(ultimoMsg); } catch(err) {} }
   viewDay = day; estadoConf = 'registrado';
   pintarTodo();
-  // Regresa solo a la app de pedidos; el botón hexagonal se pone verde allá
+  // Regresa solo a la app de pedidos (con tiempo para deshacer)
   clearTimeout(timerVolver);
-  if (APP && window.Android.volver) timerVolver = setTimeout(() => { if (estadoConf !== 'registrado') return; estadoConf = 'vacio'; pintarConfirmar(); window.Android.volver(); }, 1200);
+  if (APP && window.Android.volver) timerVolver = setTimeout(() => { if (estadoConf !== 'registrado') return; estadoConf = 'vacio'; pintarConfirmar(); window.Android.volver(); }, 2600);
 }
 let timerVolver = null;
 function pantallaExito(){
   return `<div class="exito">
     <div class="check hex" aria-hidden="true"><svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg></div>
-    <h2>¡Registrado!</h2><p class="hint" style="font-size:17px;margin:0">${esc(ultimoMsg)}</p>${APP ? '<p class="hint" style="margin:0">Regresando a la app de pedidos…</p>' : ''}
+    <h2>¡Registrado!</h2><p class="hint" style="font-size:17px;margin:0">${esc(ultimoMsg)}</p>
+    ${APP && ultimoId ? '<p class="hint" style="margin:0">Regresando a la app de pedidos…</p><div class="barra"><i></i></div>' : ''}
     <div style="display:flex;gap:10px;flex-wrap:wrap;justify-content:center">
-      ${APP ? '<button class="btn primary" id="exVolver" type="button" style="font-size:20px;padding:18px 28px">Volver a la app de pedidos</button>' : ''}
-      <button class="btn ghost" id="exVer" type="button">Ver registro del día</button>
+      ${APP ? '<button class="bt go" id="exVolver" type="button">Volver a la app de pedidos</button>' : ''}
+      ${ultimoId ? '<button class="bt lt" id="exDeshacer" type="button">Deshacer</button>' : ''}
+      <button class="bt lt" id="exVer" type="button">Ver registro del día</button>
     </div></div>`;
 }
 function enlazarExito(){
   const v = $('exVolver'); if (v) v.onclick = () => { clearTimeout(timerVolver); estadoConf = 'vacio'; pintarConfirmar(); window.Android.volver(); };
+  const d = $('exDeshacer'); if (d) d.onclick = async () => {
+    clearTimeout(timerVolver); const id = ultimoId; ultimoId = null;
+    await quitarSinClave(id); estadoConf = order ? 'pedido' : 'vacio'; aviso('Se deshizo el registro.'); pintarTodo();
+  };
   $('exVer').onclick = () => { clearTimeout(timerVolver); estadoConf = 'vacio'; ir('vRegistro'); };
 }
 
@@ -328,7 +391,7 @@ function enlazarResumen(){
     else { const m = store.get('bees.resumen.' + r.dia, {}); m[r.plat] = rec; store.set('bees.resumen.' + r.dia, m); }
     ultimoMsg = `Resumen de ${PNAME[r.plat]} guardado · ${lineaCorte(r.plat, r.total)}`;
     if (APP && window.Android.registrado) { try { window.Android.registrado(ultimoMsg); } catch(err) {} }
-    viewDay = r.dia; estadoConf = 'registrado'; pintarTodo();
+    ultimoId = null; viewDay = r.dia; estadoConf = 'registrado'; pintarTodo();
   };
   const bv = $('btnVolverR'); if (bv) bv.onclick = () => window.Android.volver();
 }
@@ -350,7 +413,7 @@ function pintarRegistro(){
   const ped = {}, venta = {}; PLATS.forEach(p => { ped[p] = 0; venta[p] = 0; });
   log.forEach(o => { if (o.platform in ped) { ped[o.platform]++; venta[o.platform] += Number(o.total)||0; } });
   const tot = log.length;
-  let h = barraDia('Registro del día');
+  let h = barraDia('Registro del día').replace(/<\/div>$/, `<div style="flex:1"></div><button class="btn small" type="button" id="btnModoReg" style="background:var(--past);color:#fff">🗓 ${modoReg ? 'Cambiar día del modo registro' : 'Modo registro'}</button></div>`);
   h += `<div class="stats"><div class="stat total"><span class="eyebrow">Pedidos</span><b class="num">${tot}</b><span class="hint" style="color:#cfc6b1">en las 4 tabletas</span></div>` +
     PLATS.map(p => `<div class="stat" style="--c:${PCOLOR[p]}"><span class="eyebrow">${p}</span><b class="num">${ped[p]}</b><span class="hint">${dinero(venta[p])}</span></div>`).join('') + '</div>';
   h += `<div class="filtros">${[['','Todas'], ...PLATS.map(p => [p,p])].map(([k,n]) => `<button type="button" data-f="${esc(k)}" aria-pressed="${filtro===k}">${n}</button>`).join('')}</div>`;
@@ -360,7 +423,7 @@ function pintarRegistro(){
     const det = abierta === o.id ? `<div class="det">${(o.notes||[]).length ? `<span class="nota">${esc(o.notes.join(' · '))}</span>` : ''}${o.pendiente ? '<span class="chip warn">Por subir</span>' : ''}<div style="flex:1"></div><button class="btn small ${porQuitar===o.id?'dark':'ghost'}" type="button" data-q="${esc(o.id)}">${porQuitar===o.id ? '¿Seguro? Toca otra vez para quitar' : 'Quitar del registro'}</button></div>` : '';
     return `<li class="fila ${nueva?'nueva':''}" style="--c:${PCOLOR[o.platform]||'var(--muted)'}"><button type="button" data-o="${esc(o.id)}" aria-expanded="${abierta===o.id}">
       <span class="hr num">${esc(o.time || '—')}</span>
-      <span><span class="pl">${esc(o.platform)}</span><span class="id" style="display:block">#${esc(o.number)}${o.client ? ' · ' + esc(o.client) : ''}</span></span>
+      <span><span class="pl">${esc(o.platform)}</span><span class="id" style="display:block">#${esc(o.number)}${o.client ? ' · ' + esc(o.client) : ''}</span>${o.tarde ? `<span class="tarde" style="display:block">Registrado después${o.por ? ' · ' + esc(o.por) : ''}</span>` : ''}</span>
       <span class="prods">${(o.lines||[]).map(l => (l.qty>1?l.qty+' ':'') + esc(l.excel)).join(' · ') || '<span class="hint">Sin productos</span>'}</span>
       <span class="tt num">${dinero(o.total)}${o.totalNote ? `<small>${esc(o.totalNote)}</small>` : ''}</span>
     </button>${det}</li>`;
@@ -369,12 +432,17 @@ function pintarRegistro(){
   enlazarDia(el);
   el.querySelectorAll('[data-f]').forEach(b => b.onclick = () => { filtro = b.dataset.f; pintarRegistro(); });
   el.querySelectorAll('[data-o]').forEach(b => b.onclick = () => { abierta = abierta === b.dataset.o ? null : b.dataset.o; porQuitar = null; pintarRegistro(); });
-  el.querySelectorAll('[data-q]').forEach(b => b.onclick = () => { if (porQuitar !== b.dataset.q) { porQuitar = b.dataset.q; pintarRegistro(); } else quitar(b.dataset.q); });
+  el.querySelectorAll('[data-q]').forEach(b => b.onclick = () => { if (porQuitar !== b.dataset.q) { porQuitar = b.dataset.q; pintarRegistro(); } else { const id = b.dataset.q; conSupervisor('Quitar un pedido del registro', () => quitar(id)); } });
+  const bm = $('btnModoReg'); if (bm) bm.onclick = abrirModoRegistro;
+}
+async function quitarSinClave(id){
+  const dia = id.split('|')[0];
+  if (SYNC()) { setCola(cola().filter(e => e.id !== id)); try { await sb('DELETE', 'delivery_pedidos', '?id=eq.' + encodeURIComponent(id)); } catch(e) {} await refrescar(dia); }
+  else store.set(logKey(dia), store.get(logKey(dia), []).filter(e => e.id !== id));
 }
 async function quitar(id){
   porQuitar = null;
-  if (SYNC()) { setCola(cola().filter(e => e.id !== id)); try { await sb('DELETE', 'delivery_pedidos', '?id=eq.' + encodeURIComponent(id)); } catch(e) {} await refrescar(viewDay); }
-  else store.set(logKey(viewDay), store.get(logKey(viewDay), []).filter(e => e.id !== id));
+  await quitarSinClave(id);
   aviso('Pedido quitado del registro.'); pintarTodo();
 }
 
@@ -467,12 +535,13 @@ window.progresoVersion = p => {
 };
 $('nuevaBtn').onclick = () => { if (!APP || !window.Android.actualizarApk) return; $('nuevaBtn').disabled = true; $('nuevaTxt').textContent = 'Preparando la descarga…'; window.Android.actualizarApk(); };
 // La app pregunta antes de aplicar una pantalla nueva: no a media confirmación
-window.puedeRecargar = () => estadoConf === 'vacio' && $('ajustes').hidden;
+window.puedeRecargar = () => estadoConf === 'vacio' && $('ajustes').hidden && $('modal').hidden;
 
 /* ---------- Ajustes ---------- */
-function abrirAjustes(){ $('ajustes').hidden = false; pintarAjustes(); }
-$('btnAjustes').onclick = abrirAjustes;
-$('sync').onclick = abrirAjustes;
+function abrirAjustes(){ $('ajustes').hidden = false; pintarAjustes(); pintarAjustesSup(); }
+function abrirAjustesConClave(){ if (!clave) abrirAjustes(); else conSupervisor('Entrar a Ajustes', abrirAjustes); }
+$('btnAjustes').onclick = abrirAjustesConClave;
+$('sync').onclick = abrirAjustesConClave;
 $('ajCerrar').onclick = () => { $('ajustes').hidden = true; pintarConfirmar(); };
 $('ajustes').onclick = e => { if (e.target.id === 'ajustes') { $('ajustes').hidden = true; pintarConfirmar(); } };
 function pintarAjustes(){
@@ -525,6 +594,180 @@ $('ajGuardarClave').onclick = async () => {
   pintarAjustes(); pintarSync();
 };
 
+/* ---------- Modo supervisor ---------- */
+const SUP_MIN = 10;
+let sup = null;   // {nombre, admin, pin, hasta}
+const supVigente = () => sup && Date.now() < sup.hasta ? sup : null;
+async function rpc(fn, body){
+  const r = await sb('POST', 'rpc/' + fn, '', body, 'return=representation');
+  const t = await r.text(); let j = null; try { j = JSON.parse(t); } catch(e) {}
+  if (!r.ok) throw new Error((j && j.message) || 'No se pudo conectar. Revisa el internet.');
+  return j;
+}
+function cerrarModal(){ $('modal').hidden = true; $('modalCaja').innerHTML = ''; }
+$('modal').onclick = e => { if (e.target.id === 'modal') cerrarModal(); };
+/** Pide la clave de supervisor (o la crea la primera vez) y luego sigue. */
+function conSupervisor(motivo, sigue){
+  if (!SYNC()) { aviso('Primero pon la clave de la sucursal en Ajustes.', true); return; }
+  const s = supVigente(); if (s) { s.hasta = Date.now() + SUP_MIN * 60000; sigue(s); return; }
+  let pin = '', primera = false, ocupado = false;
+  const caja = $('modalCaja');
+  const pintar = (msg, mal) => {
+    caja.innerHTML = `<h2>${primera ? 'Crea la clave de supervisor' : 'Clave de supervisor'}</h2>
+      <p class="hint" style="margin:0">${esc(motivo)}${primera ? '. Es la primera vez: tú quedas como administrador.' : ''}</p>
+      ${primera ? '<label class="eyebrow" for="supNom">Tu nombre</label><input id="supNom" autocomplete="off" maxlength="30" placeholder="Ej. Alfredo">' : ''}
+      <div class="pin-dots ${mal ? 'mal' : ''}" aria-label="${pin.length} de 4">${[0,1,2,3].map(i => `<i class="${i < pin.length ? 'f' : ''}"></i>`).join('')}</div>
+      ${msg ? `<div class="banner ${mal ? 'bad' : 'ok'}" style="text-align:center">${esc(msg)}</div>` : ''}
+      <div class="teclado">${[1,2,3,4,5,6,7,8,9].map(n => `<button type="button" data-k="${n}">${n}</button>`).join('')}<button type="button" data-k="x" aria-label="Cancelar" style="font-size:16px">Cancelar</button><button type="button" data-k="0">0</button><button type="button" data-k="b" aria-label="Borrar">⌫</button></div>`;
+    caja.querySelectorAll('[data-k]').forEach(b => b.onclick = () => tecla(b.dataset.k));
+  };
+  const tecla = async k => {
+    if (ocupado) return;
+    if (k === 'x') { cerrarModal(); return; }
+    if (k === 'b') { pin = pin.slice(0, -1); pintar(); return; }
+    if (pin.length >= 4) return;
+    pin += k; const nom = $('supNom') ? $('supNom').value : ''; pintar(); if ($('supNom')) $('supNom').value = nom;
+    if (pin.length < 4) return;
+    ocupado = true;
+    try {
+      const r = await rpc('delivery_sup', {accion:'entrar', pin, d:{nombre: nom}});
+      sup = {nombre:r.nombre, admin:!!r.admin, pin, hasta: Date.now() + SUP_MIN * 60000};
+      cerrarModal(); aviso((r.nuevo ? 'Clave creada. ' : '') + 'Hola, ' + r.nombre); sigue(sup);
+    } catch(e) { pin = ''; ocupado = false; pintar(e.message, true); if ($('supNom')) $('supNom').value = nom; return; }
+    ocupado = false;
+  };
+  $('modal').hidden = false; pintar('Revisando…');
+  rpc('delivery_sup', {accion:'estado'}).then(r => { primera = !r.hay; pintar(); }).catch(e => pintar(e.message, true));
+}
+
+/* ---------- Modo registro (días pasados) ---------- */
+const MODO_MIN = 15;
+let modoReg = (() => { const m = store.get('bees.modoReg', null); return m && m.hasta > Date.now() ? m : null; })();
+function tocarModo(){ if (!modoReg) return; modoReg.hasta = Date.now() + MODO_MIN * 60000; store.set('bees.modoReg', modoReg); }
+function pintarModo(){
+  const b = $('modoReg');
+  b.hidden = !modoReg;
+  if (modoReg) { $('modoRegDia').textContent = 'Registrando para: ' + nombreDia(modoReg.dia); $('modoRegPor').textContent = modoReg.por; }
+  medir();
+}
+function terminarModo(msg){
+  if (!modoReg) return;
+  modoReg = null; store.set('bees.modoReg', null); viewDay = hoy(); fechaOk = false;
+  pintarModo(); aviso(msg || 'Modo registro terminado. La tableta regresó a hoy.'); refrescar(hoy()).then(pintarTodo);
+}
+$('modoRegFin').onclick = () => terminarModo();
+setInterval(() => { if (modoReg && Date.now() > modoReg.hasta) terminarModo('Se terminó el modo registro: 15 min sin escanear.'); }, 20000);
+function abrirModoRegistro(){
+  conSupervisor('Modo registro de días pasados', s => {
+    const h = hoy(), dias = [];
+    for (let i = 30; i >= 1; i--) dias.push(masDias(h, -i));
+    const [y,m,d] = dias[0].split('-').map(Number), lunes = (new Date(y,m-1,d).getDay() + 6) % 7;
+    const sel = modoReg ? modoReg.dia : '';
+    $('modalCaja').innerHTML = `<h2>¿Qué día vas a registrar?</h2>
+      <p class="hint" style="margin:0">Hasta 30 días atrás. Lo que escanees se guarda en ese día, marcado como registrado después por ${esc(s.nombre)}, sin avisos ni petición de foto. Se apaga solo tras ${MODO_MIN} min sin escanear.</p>
+      <div class="cal">${['L','M','M','J','V','S','D'].map(x => `<b>${x}</b>`).join('')}${'<span></span>'.repeat(lunes)}${dias.map(x => `<button type="button" data-dia="${x}" class="${x === sel ? 'on' : ''}" aria-label="${esc(nombreDia(x))}">${Number(x.slice(8))}</button>`).join('')}</div>
+      <div style="display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap">${modoReg ? '<button class="bt lt" type="button" id="mrFin">Terminar modo registro</button>' : ''}<button class="bt lt" type="button" id="mrCancel">Cancelar</button></div>`;
+    $('modal').hidden = false;
+    $('modalCaja').querySelectorAll('[data-dia]').forEach(b => b.onclick = async () => {
+      modoReg = {dia:b.dataset.dia, por:s.nombre, hasta: Date.now() + MODO_MIN * 60000}; store.set('bees.modoReg', modoReg);
+      cerrarModal(); viewDay = modoReg.dia; fechaOk = false; pintarModo();
+      aviso('Modo registro: ' + nombreDia(modoReg.dia));
+      await refrescar(viewDay); pintarTodo();
+    });
+    $('mrCancel').onclick = cerrarModal;
+    const f = $('mrFin'); if (f) f.onclick = () => { cerrarModal(); terminarModo(); };
+  });
+}
+function medir(){
+  const t = document.querySelector('.top'), b = $('modoReg');
+  document.documentElement.style.setProperty('--topH', (t ? t.offsetHeight : 69) + 'px');
+  document.documentElement.style.setProperty('--bandH', (b && !b.hidden ? b.offsetHeight : 0) + 'px');
+}
+addEventListener('resize', medir);
+
+/* ---------- Interruptor de captura ---------- */
+let capturaOn = (() => { try { const e = APP ? JSON.parse(window.Android.estado()) : {}; return e.captura !== false; } catch(e) { return true; } })();
+function ponerCapturaLocal(v){
+  if (v === capturaOn) return;
+  capturaOn = v;
+  if (APP && window.Android.ponerCaptura) { try { window.Android.ponerCaptura(v); } catch(e) {} }
+  if (estadoConf === 'vacio') pintarConfirmar();
+}
+
+/* ---------- Ajustes de supervisor ---------- */
+let supLista = null, tabletas = [], supEdit = null;
+const hace = t => { const m = Math.round((Date.now() - Date.parse(t)) / 60000); return m < 1 ? 'ahora' : m < 60 ? 'hace ' + m + ' min' : m < 1440 ? 'hace ' + Math.round(m/60) + ' h' : 'hace ' + Math.round(m/1440) + ' d'; };
+async function pintarAjustesSup(){
+  const el = $('ajSup'), s = supVigente();
+  if (!clave || !s) { el.innerHTML = ''; return; }
+  let est = {}; try { est = APP ? JSON.parse(window.Android.estado()) : {}; } catch(e) {}
+  const filasTab = tabletas.map(t => {
+    const fuera = Date.now() - Date.parse(t.ultimo) > 10 * 60000;
+    const prob = [t.avisos === false ? 'sin permiso de avisos' : '', t.lectura === false ? 'botón Capturar apagado' : ''].filter(Boolean);
+    const color = fuera ? 'var(--bad)' : prob.length ? 'var(--warn)' : 'var(--ok)';
+    return `<div class="tab-fila"><span class="dot" style="background:${color}"></span><div style="min-width:0"><b>${esc(t.plat || 'Sin plataforma')} · ${esc(t.modelo || '')}</b>
+      <div class="hint">${fuera ? '<b style="color:var(--bad)">Sin conexión</b> desde ' + esc(hhmm(t.ultimo)) : 'En línea ' + hace(t.ultimo)}${t.bateria != null ? ' · 🔋 ' + t.bateria + ' %' + (t.cargando ? ' cargando' : '') : ''}${prob.length ? ' · <b style="color:var(--warn)">' + esc(prob.join(', ')) + '</b>' : ''} · v${esc(t.version || '?')}${t.id === est.id ? ' · <b>esta tableta</b>' : ''}</div></div></div>`;
+  }).join('') || '<p class="hint" style="margin:0">Todavía ninguna tableta con la versión 1.4 ha mandado su estado.</p>';
+  const filasSup = (supLista || []).map(x => supEdit === x.id
+    ? `<div class="sup-fila"><input id="seNom" value="${esc(x.nombre)}" maxlength="30" style="flex:1;min-width:120px"><input id="sePin" inputmode="numeric" maxlength="4" placeholder="Nueva clave (opcional)" style="width:170px"><button class="btn small" type="button" id="seOk" style="background:var(--honey)">Guardar</button><button class="btn small ghost" type="button" id="seNo">Cancelar</button></div>`
+    : `<div class="sup-fila"><div style="flex:1;min-width:0"><b>${esc(x.nombre)}</b> ${x.admin ? '<span class="chip ok" style="font-size:12px">Administrador</span>' : '<span class="chip" style="font-size:12px">Supervisor</span>'}</div><button class="btn small ghost" type="button" data-se="${x.id}">Editar</button>${x.nombre !== s.nombre ? `<button class="btn small ghost" type="button" data-sb="${x.id}">${supEdit === 'borrar:' + x.id ? '¿Seguro? Toca otra vez' : 'Quitar'}</button>` : ''}</div>`).join('');
+  el.innerHTML = `
+    <div class="card" style="display:grid;gap:8px;border-left:6px solid var(--past)">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px"><b>Modo supervisor</b><span class="chip past">🔒 ${esc(s.nombre)}${s.admin ? ' · administrador' : ''}</span></div>
+      <p class="hint" style="margin:0">Se cierra solo tras ${SUP_MIN} min sin usar Ajustes.</p>
+      <div><button class="btn small ghost" type="button" id="supSalir">Salir del modo supervisor</button></div>
+    </div>
+    <div class="card" style="display:grid;gap:10px">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:12px"><div><b>Captura de pedidos</b><div class="hint">Aplica a las 4 tabletas. Los avisos a Telegram siguen aunque esté apagada.</div></div><button class="sw" type="button" role="switch" id="swCaptura" aria-checked="${capturaOn}" aria-label="Captura de pedidos"></button></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;border-top:1px solid var(--line);padding-top:10px"><div><b>Modo registro de días pasados</b><div class="hint">${modoReg ? 'Activo: ' + esc(nombreDia(modoReg.dia)) : 'Hasta 30 días atrás, para ponerse al corriente.'}</div></div><button class="btn small" type="button" id="ajModo" style="background:var(--past);color:#fff">${modoReg ? 'Cambiar' : 'Empezar'}</button></div>
+    </div>
+    <div class="card" style="display:grid;gap:8px">
+      <b>Estado de las tabletas</b>
+      <div>${filasTab}</div>
+      <p class="hint" style="margin:0">Si una deja de reportarse 10 min, se queda con poca batería o pierde permisos, llega aviso a Telegram (todos los días 11:00 a.m.–11:30 p.m.; viernes y sábado hasta 4:30 a.m.).</p>
+      <label class="eyebrow" for="ajPlat">Esta tableta es de</label>
+      <select id="ajPlat"><option value="">— Elegir —</option>${PLATS.map(p => `<option ${est.plat === p ? 'selected' : ''}>${p}</option>`).join('')}</select>
+    </div>
+    ${s.admin ? `<div class="card" style="display:grid;gap:8px">
+      <b>Supervisores</b>
+      <div>${filasSup || '<p class="hint" style="margin:0">Cargando…</p>'}</div>
+      <div class="eyebrow" style="margin-top:6px">Agregar supervisor</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><input id="snNom" placeholder="Nombre" maxlength="30" style="flex:1;min-width:120px"><input id="snPin" inputmode="numeric" maxlength="4" placeholder="Clave de 4 números" style="width:170px"><button class="btn small" type="button" id="snOk" style="background:var(--honey)">Agregar</button></div>
+    </div>` : ''}`;
+  $('supSalir').onclick = () => { sup = null; $('ajustes').hidden = true; aviso('Saliste del modo supervisor.'); pintarConfirmar(); };
+  $('swCaptura').onclick = async () => {
+    const v = !capturaOn, ss = supVigente(); if (!ss) { $('ajustes').hidden = true; return; }
+    try { const r = await rpc('delivery_sup', {accion:'captura', pin:ss.pin, d:{activa:v}}); ponerCapturaLocal(r.captura !== false); aviso(capturaOn ? 'Captura activada en todas las tabletas' : 'Captura desactivada en todas las tabletas'); }
+    catch(e) { aviso(e.message, true); }
+    pintarAjustesSup();
+  };
+  $('ajModo').onclick = () => { $('ajustes').hidden = true; abrirModoRegistro(); };
+  $('ajPlat').onchange = e => { if (APP && window.Android.ponerPlataforma) window.Android.ponerPlataforma(e.target.value); aviso('Listo: esta tableta es de ' + e.target.value); };
+  if (s.admin) {
+    const guardar = async d => { try { supLista = await rpc('delivery_sup', {accion:'guardar', pin:s.pin, d}); if (d.pin && d.id && supLista && s.nombre === d.nombre) s.pin = d.pin; supEdit = null; aviso('Supervisor guardado'); } catch(e) { aviso(e.message, true); } pintarAjustesSup(); };
+    $('snOk').onclick = () => guardar({nombre:$('snNom').value, pin:$('snPin').value});
+    el.querySelectorAll('[data-se]').forEach(b => b.onclick = () => { supEdit = b.dataset.se; pintarAjustesSup(); });
+    el.querySelectorAll('[data-sb]').forEach(b => b.onclick = async () => {
+      if (supEdit !== 'borrar:' + b.dataset.sb) { supEdit = 'borrar:' + b.dataset.sb; pintarAjustesSup(); return; }
+      try { supLista = await rpc('delivery_sup', {accion:'borrar', pin:s.pin, d:{id:b.dataset.sb}}); supEdit = null; aviso('Supervisor quitado'); } catch(e) { aviso(e.message, true); }
+      pintarAjustesSup();
+    });
+    const ok = $('seOk'); if (ok) ok.onclick = () => { const x = supLista.find(z => z.id === supEdit); const pin = $('sePin').value.trim(); guardar({id:supEdit, nombre:$('seNom').value, pin, admin:x && x.admin}).then(() => { if (x && x.nombre === s.nombre && pin) s.pin = pin; }); };
+    const no = $('seNo'); if (no) no.onclick = () => { supEdit = null; pintarAjustesSup(); };
+  }
+  // Datos frescos (sin repintar en bucle)
+  if (!pintarAjustesSup.cargando) {
+    pintarAjustesSup.cargando = true;
+    try {
+      const [rt, rl] = await Promise.all([sb('GET', 'delivery_tabletas', '?select=*&order=plat.asc'), s.admin ? rpc('delivery_sup', {accion:'lista', pin:s.pin}) : Promise.resolve(null)]);
+      if (rt.ok) tabletas = await rt.json();
+      if (rl) supLista = rl;
+    } catch(e) {}
+    pintarAjustesSup.cargando = false;
+    if (!$('ajustes').hidden && !document.activeElement.matches('#ajSup input')) { pintarAjustesSup.cargando = 'listo'; await pintarAjustesSup(); pintarAjustesSup.cargando = false; }
+  }
+}
+
 /* ---------- todo ---------- */
 function pintarTodo(){
   pintarConfirmar();
@@ -539,7 +782,8 @@ setInterval(reloj, 15000); reloj();
 // La tableta manda aquí lo que leyó de la pantalla
 window.cargarCaptura = async (t, plataforma, met) => {
   texto = String(t || ''); plataformaHint = PLATS.includes(plataforma) ? plataforma : ''; metodo = met || '';
-  order = null; resumen = null; leer();
+  order = null; resumen = null; fechaOk = false; verInfo = false; ultimoId = null; leer();
+  if (modoReg) tocarModo();
   ir('vConfirmar');
   // Si no salió ningún producto, se guarda lo que leyó la tableta para poder corregir el lector
   if (SYNC() && order && (!order.products.length || order.total == null)) {
@@ -552,6 +796,8 @@ window.cargarCaptura = async (t, plataforma, met) => {
 };
 window.actualizarEstado = () => { pintarAjustes(); if (estadoConf === 'vacio') pintarConfirmar(); if (SYNC()) subirCola(); };
 
-if (SYNC()) { refrescar(hoy()).then(() => { pintarTodo(); subirCola(); }); setInterval(() => { subirCola(); }, 60000); }
+if (modoReg) viewDay = modoReg.dia;
+pintarModo();
+if (SYNC()) { refrescar(viewDay).then(() => { pintarTodo(); subirCola(); }); setInterval(() => { subirCola(); }, 60000); }
 pintarTodo();
 })();

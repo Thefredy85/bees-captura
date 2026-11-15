@@ -246,7 +246,8 @@ public class CapturaService extends AccessibilityService {
         if (n == null) return false;
         Rect r = new Rect();
         n.getBoundsInScreen(r);
-        if (n.isSelected() && Rect.intersects(r, zona) && r.height() < zona.height() * 2) return true;
+        // Solo cuenta algo seleccionado dentro de la tarjeta (no el menú «En curso» de la orilla)
+        if (n.isSelected() && r.left >= zona.left && zona.contains(r.centerX(), r.centerY()) && r.height() <= zona.height() * 1.2f) return true;
         for (int i = 0; i < n.getChildCount(); i++) if (algunoSeleccionado(n.getChild(i), zona)) return true;
         return false;
     }
