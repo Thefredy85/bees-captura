@@ -71,6 +71,8 @@ public class MainActivity extends Activity {
         setContentView(web);
         manejar(getIntent());
         revisarActualizacion();
+        Latido.iniciar(this);
+        Latido.ahora(this);
     }
 
     @Override
@@ -148,6 +150,10 @@ public class MainActivity extends Activity {
                 o.put("code", BuildConfigInfo.CODE);
                 o.put("avisos", AvisosService.activo(MainActivity.this));
                 o.put("web", Actualizador.webActiva(MainActivity.this));
+                o.put("captura", Latido.capturaActiva(MainActivity.this));
+                o.put("plat", AvisosService.prefs(MainActivity.this).getString("plat_tableta", ""));
+                o.put("modelo", Build.MANUFACTURER + " " + Build.MODEL);
+                o.put("id", Settings.Secure.getString(getContentResolver(), Settings.Secure.ANDROID_ID));
                 return o.toString();
             } catch (Exception e) {
                 return "{}";
@@ -165,6 +171,19 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public void guardarClave(String c) {
             AvisosService.prefs(MainActivity.this).edit().putString("clave", c == null ? "" : c.trim()).apply();
+        }
+
+        /** Un supervisor cambió el interruptor de captura: se aplica ya en esta tableta. */
+        @JavascriptInterface
+        public void ponerCaptura(boolean activa) {
+            Latido.aplicarCaptura(MainActivity.this, activa);
+        }
+
+        /** De qué plataforma es esta tableta (para los avisos de conexión). */
+        @JavascriptInterface
+        public void ponerPlataforma(String p) {
+            AvisosService.prefs(MainActivity.this).edit().putString("plat_tableta", p == null ? "" : p).apply();
+            Latido.ahora(MainActivity.this);
         }
 
         @JavascriptInterface

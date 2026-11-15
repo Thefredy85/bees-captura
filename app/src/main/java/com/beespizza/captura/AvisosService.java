@@ -24,11 +24,11 @@ import java.util.regex.Pattern;
 public class AvisosService extends NotificationListenerService {
 
     private static final String SB = "https://iwjhmdeffwhqxmcivfso.supabase.co/rest/v1/delivery_eventos";
-    private static final String SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml3amhtZGVmZndocXhtY2l2ZnNvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQwNjE0MTUsImV4cCI6MjEwOTYzNzQxNX0.b36fWyQxjLwukD8FWis7ef-uynLBoO_tYWTKubaJQbM";
+    static final String SB_KEY ="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml3amhtZGVmZndocXhtY2l2ZnNvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQwNjE0MTUsImV4cCI6MjEwOTYzNzQxNX0.b36fWyQxjLwukD8FWis7ef-uynLBoO_tYWTKubaJQbM";
 
     /** Palabras con las que las apps anuncian un pedido que acaba de entrar. */
     private static final Pattern NUEVO = Pattern.compile(
-            "(?iu)(nuevo pedido|pedido nuevo|nueva orden|orden nueva|new order|tienes un (nuevo )?pedido|recibiste un pedido|nueva solicitud|pedido entrante|incoming order|acepta(r)? (el )?pedido)");
+            "(?iu)(lleg[oó] el pedido \\d|nuevo pedido|pedido nuevo|nueva orden|orden nueva|new order|tienes un (nuevo )?pedido|recibiste un pedido|nueva solicitud|pedido entrante|incoming order|acepta(r)? (el )?pedido)");
 
     /** Para no avisar dos veces lo mismo (las apps repiten la notificación mientras suena). */
     private final Map<String, Long> vistos = new HashMap<>();
@@ -42,11 +42,18 @@ public class AvisosService extends NotificationListenerService {
     }
 
     @Override
+    public void onListenerConnected() {
+        super.onListenerConnected();
+        Latido.iniciar(this);
+    }
+
+    @Override
     public void onNotificationPosted(StatusBarNotification sbn) {
         try {
             String pkg = sbn.getPackageName();
             String plat = CapturaService.plataformaDe(pkg);
             if (plat.isEmpty()) return;
+            Latido.recordarPlataforma(this, plat);
             Notification n = sbn.getNotification();
             if (n == null) return;
             if ((n.flags & Notification.FLAG_GROUP_SUMMARY) != 0) return;

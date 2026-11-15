@@ -53,3 +53,15 @@ jobs:
           gh release create ultima BeesCaptura.apk version.json web.zip --latest \
             --title "Bee's Captura (última versión)" \
             --notes "Compilación ${{ github.run_number }}. Abre este enlace en la tableta para instalar o actualizar."
+
+      # Versión de prueba (rama «prueba»): se publica aparte y no la ven las tabletas que usan la última versión
+      - name: Publicar versión de prueba
+        if: github.ref == 'refs/heads/prueba'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk BeesCaptura-prueba.apk
+          gh release delete prueba --yes --cleanup-tag || true
+          gh release create prueba BeesCaptura-prueba.apk --prerelease \
+            --title "Bee's Captura (versión de prueba)" \
+            --notes "Compilación ${{ github.run_number }} de la rama prueba. Solo para probar en una tableta."

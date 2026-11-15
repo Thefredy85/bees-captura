@@ -63,7 +63,14 @@ public class CapturaService extends AccessibilityService {
     @Override
     protected void onServiceConnected() {
         instancia = this;
-        mostrarBurbuja();
+        if (Latido.capturaActiva(this)) mostrarBurbuja();
+        Latido.iniciar(this);
+    }
+
+    /** Un supervisor activó o desactivó la captura en todas las tabletas. */
+    void aplicarCaptura(boolean activa) {
+        if (activa) mostrarBurbuja();
+        else if (!ocupado) quitarBurbuja();
     }
 
     @Override
@@ -192,12 +199,140 @@ public class CapturaService extends AccessibilityService {
             aviso("Primero abre el pedido en Uber, DiDi, Rappi o Reservándonos.");
             return;
         }
+        if (!Latido.capturaActiva(this)) {
+            aviso("La captura de pedidos está desactivada por el supervisor.");
+            return;
+        }
         ocupado = true;
         plataforma = plataformaDe(paquete);
+        Latido.recordarPlataforma(this, plataforma);
         segmentos.clear();
         bajadas = 0;
+        tarjetaDidi = null;
         estadoBurbuja("Leyendo…");
-        leerPorTexto(raiz, 0);
+        if ("DiDi".equals(plataforma)) elegirTarjetaDidi(raiz, () -> {
+            AccessibilityNodeInfo r = getRootInActiveWindow();
+            if (r == null) { aviso("No pude leer la pantalla. Intenta de nuevo."); fin(); } else leerPorTexto(r, 0);
+        });
+        else leerPorTexto(raiz, 0);
+    }
+
+    // ---------- DiDi: solo el pedido marcado en naranja ----------
+
+    /** Zona (en la pantalla) de la tarjeta del pedido abierto en la lista de la izquierda de DiDi. */
+    private Rect tarjetaDidi = null;
+    private int corteIzq = 0;   // x donde termina la lista de pedidos de la izquierda
+    private static final Pattern NUM_TARJETA = Pattern.compile("^#\\s?\\d{1,6}$");
+    private static final Pattern ACTIVO = Pattern.compile("(?i)(preparar pedido|llegar[aá] en|listo en|recoger|entregar)");
+    private static final Pattern NO_ACTIVO = Pattern.compile("(?i)(reembolso|cancel|procesamiento restante)");
+
+    private static class Txt { final String s; final Rect r; Txt(String s, Rect r) { this.s = s; this.r = r; } }
+
+    private void textosConCaja(AccessibilityNodeInfo n, List<Txt> out) {
+        if (n == null) return;
+        if (n.isVisibleToUser()) {
+            CharSequence t = n.getText();
+            if (t == null || t.length() == 0) t = n.getContentDescription();
+            if (t != null && t.toString().trim().length() > 0) {
+                Rect r = new Rect();
+                n.getBoundsInScreen(r);
+                out.add(new Txt(t.toString().trim(), r));
+            }
+        }
+        for (int i = 0; i < n.getChildCount(); i++) textosConCaja(n.getChild(i), out);
+    }
+
+    private boolean algunoSeleccionado(AccessibilityNodeInfo n, Rect zona) {
+        if (n == null) return false;
+        Rect r = new Rect();
+        n.getBoundsInScreen(r);
+        if (n.isSelected() && Rect.intersects(r, zona) && r.height() < zona.height() * 2) return true;
+        for (int i = 0; i < n.getChildCount(); i++) if (algunoSeleccionado(n.getChild(i), zona)) return true;
+        return false;
+    }
+
+    /**
+     * En la pantalla «En curso» de DiDi hay una tarjeta por pedido a la izquierda; el abierto lleva una franja naranja.
+     * Se elige esa tarjeta (por la franja en la imagen, por estar seleccionada o por su estado) y se ignoran las demás.
+     */
+    private void elegirTarjetaDidi(AccessibilityNodeInfo raiz, Runnable sigue) {
+        Rect pant = new Rect();
+        raiz.getBoundsInScreen(pant);
+        int ancho = Math.max(1, pant.width());
+        corteIzq = pant.left + Math.round(ancho * 0.40f);
+        List<Txt> todos = new ArrayList<>();
+        textosConCaja(raiz, todos);
+        List<Rect> nums = new ArrayList<>();
+        for (Txt t : todos) if (t.r.centerX() < corteIzq && NUM_TARJETA.matcher(t.s).matches()) nums.add(t.r);
+        if (nums.size() < 2) { sigue.run(); return; }   // un solo pedido: no hay nada que elegir
+        Collections.sort(nums, (a, b) -> Integer.compare(a.top, b.top));
+        final List<Rect> tarjetas = new ArrayList<>();
+        for (int i = 0; i < nums.size(); i++) {
+            int top = nums.get(i).top - Math.round(nums.get(i).height() * 0.8f);
+            int bottom = i + 1 < nums.size() ? nums.get(i + 1).top - Math.round(nums.get(i + 1).height() * 0.8f) : pant.bottom;
+            int left = Math.max(pant.left, nums.get(i).left - Math.round(ancho * 0.05f));
+            tarjetas.add(new Rect(left, top, corteIzq, bottom));
+        }
+        // 1) La tarjeta marcada como seleccionada
+        for (Rect z : tarjetas) if (algunoSeleccionado(raiz, z)) { tarjetaDidi = z; sigue.run(); return; }
+        // 2) La franja naranja en la imagen de la pantalla (si se puede tomar sin pedir permiso)
+        if (Build.VERSION.SDK_INT >= 30 || ProyeccionService.proyeccion != null) {
+            if (burbuja != null) burbuja.setVisibility(View.INVISIBLE);
+            h.postDelayed(() -> tomarImagen(bmp -> {
+                if (burbuja != null) burbuja.setVisibility(View.VISIBLE);
+                int k = bmp == null ? -1 : tarjetaConFranja(bmp, tarjetas);
+                tarjetaDidi = k >= 0 ? tarjetas.get(k) : porEstado(todos, tarjetas);
+                sigue.run();
+            }), 150);
+            return;
+        }
+        // 3) La única tarjeta con un pedido en preparación
+        tarjetaDidi = porEstado(todos, tarjetas);
+        sigue.run();
+    }
+
+    private Rect porEstado(List<Txt> todos, List<Rect> tarjetas) {
+        Rect elegida = null;
+        int activas = 0;
+        for (Rect z : tarjetas) {
+            StringBuilder sb = new StringBuilder();
+            for (Txt t : todos) if (z.contains(t.r.centerX(), t.r.centerY())) sb.append(t.s).append('\n');
+            String s = sb.toString();
+            if (ACTIVO.matcher(s).find() && !NO_ACTIVO.matcher(s).find()) { activas++; elegida = z; }
+        }
+        return activas == 1 ? elegida : null;
+    }
+
+    private static boolean naranja(int c) {
+        int r = (c >> 16) & 0xff, g = (c >> 8) & 0xff, b = c & 0xff;
+        return r > 200 && g > 50 && g < 160 && b < 100 && r - g > 70;
+    }
+
+    /** Cuál tarjeta tiene la franja naranja de su lado izquierdo (o -1 si ninguna se distingue). */
+    static int tarjetaConFranja(Bitmap bmp, List<Rect> tarjetas) {
+        int mejor = -1, mejorPuntos = 0, segundo = 0;
+        for (int i = 0; i < tarjetas.size(); i++) {
+            Rect z = tarjetas.get(i);
+            int x0 = Math.max(0, z.left), x1 = Math.min(bmp.getWidth() - 1, z.left + Math.round((z.right - z.left) * 0.25f));
+            int y0 = Math.max(0, z.top), y1 = Math.min(bmp.getHeight() - 1, z.bottom);
+            int puntos = 0;
+            for (int x = x0; x <= x1; x += 2) {
+                int col = 0;
+                for (int y = y0; y <= y1; y += 3) if (naranja(bmp.getPixel(x, y))) col++;
+                puntos = Math.max(puntos, col);   // la columna con más naranja (la franja es vertical)
+            }
+            if (puntos > mejorPuntos) { segundo = mejorPuntos; mejorPuntos = puntos; mejor = i; }
+            else if (puntos > segundo) segundo = puntos;
+        }
+        int alto = Math.max(1, (tarjetas.get(Math.max(0, mejor)).height()) / 3);
+        return mejor >= 0 && mejorPuntos >= alto * 0.4f && mejorPuntos > segundo * 2 ? mejor : -1;
+    }
+
+    /** Con DiDi: de la lista de la izquierda solo cuenta lo que está dentro de la tarjeta elegida. */
+    private boolean fueraDeTarjeta(Rect r) {
+        if (tarjetaDidi == null) return false;
+        if (r.centerX() >= corteIzq) return false;
+        return !tarjetaDidi.contains(r.centerX(), r.centerY());
     }
 
     static String plataformaDe(String pkg) {
@@ -259,6 +394,11 @@ public class CapturaService extends AccessibilityService {
         if (n.isVisibleToUser()) {
             CharSequence t = n.getText();
             if (t == null || t.length() == 0) t = n.getContentDescription();
+            if (t != null && tarjetaDidi != null) {
+                Rect r = new Rect();
+                n.getBoundsInScreen(r);
+                if (fueraDeTarjeta(r)) t = null;
+            }
             if (t != null) {
                 for (String l : t.toString().split("\\r?\\n")) {
                     String s = l.trim();
@@ -389,9 +529,11 @@ public class CapturaService extends AccessibilityService {
         if (lectorImagen == null) lectorImagen = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS);
         final int ancho = bmp.getWidth();
         lectorImagen.process(InputImage.fromBitmap(bmp, 0))
-                .addOnSuccessListener(t -> listo.accept(ordenarRenglones(t, ancho)))
+                .addOnSuccessListener(t -> { bmpActual = bmp; try { listo.accept(ordenarRenglones(t, ancho)); } finally { bmpActual = null; } })
                 .addOnFailureListener(e -> listo.accept(""));
     }
+
+    private Bitmap bmpActual = null;
 
     /**
      * Ordena el texto leído de la imagen por renglones, de arriba abajo y de izquierda a derecha.
@@ -403,12 +545,34 @@ public class CapturaService extends AccessibilityService {
         // DiDi tiene dos pantallas: el pedido en curso (lista de pedidos a la izquierda)
         // y el detalle del historial (ventana completa con la línea de tiempo a la derecha)
         boolean historialDidi = "DiDi".equals(plataforma) && t.getText().matches("(?is).*(imprimir recibo|soporte didi|socio repartidor).*");
+        // DiDi en curso: de la lista de la izquierda solo se queda la tarjeta con la franja naranja (el pedido abierto)
+        Rect tarjeta = tarjetaDidi;
+        if ("DiDi".equals(plataforma) && !historialDidi && tarjeta == null && bmpActual != null) {
+            List<Rect> nums = new ArrayList<>();
+            for (Text.TextBlock b : t.getTextBlocks())
+                for (Text.Line l : b.getLines()) {
+                    Rect r = l.getBoundingBox();
+                    if (r != null && r.left < ancho * 0.38f && NUM_TARJETA.matcher(l.getText().trim()).matches()) nums.add(r);
+                }
+            if (nums.size() >= 2) {
+                Collections.sort(nums, (a, b) -> Integer.compare(a.top, b.top));
+                List<Rect> zonas = new ArrayList<>();
+                for (int i = 0; i < nums.size(); i++) {
+                    int top = nums.get(i).top - Math.round(nums.get(i).height() * 0.8f);
+                    int bottom = i + 1 < nums.size() ? nums.get(i + 1).top - Math.round(nums.get(i + 1).height() * 0.8f) : bmpActual.getHeight();
+                    zonas.add(new Rect(Math.max(0, nums.get(i).left - Math.round(ancho * 0.05f)), top, Math.round(ancho * 0.40f), bottom));
+                }
+                int k = tarjetaConFranja(bmpActual, zonas);
+                if (k >= 0) tarjeta = zonas.get(k);
+            }
+        }
         for (Text.TextBlock b : t.getTextBlocks()) {
             for (Text.Line l : b.getLines()) {
                 Rect r = l.getBoundingBox();
                 if (r == null) continue;
                 float x = r.left / (float) ancho;
-                if (historialDidi ? x > 0.68f : "DiDi".equals(plataforma) ? x < 0.38f : x > 0.64f) continue;
+                boolean enTarjeta = tarjeta != null && x < 0.40f && tarjeta.contains(r.centerX(), r.centerY());
+                if (!enTarjeta && (historialDidi ? x > 0.68f : "DiDi".equals(plataforma) ? x < 0.38f : x > 0.64f)) continue;
                 lineas.add(l);
             }
         }
