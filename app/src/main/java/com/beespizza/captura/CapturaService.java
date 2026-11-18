@@ -74,7 +74,54 @@ public class CapturaService extends AccessibilityService {
     }
 
     @Override
-    public void onAccessibilityEvent(AccessibilityEvent event) { }
+    public void onAccessibilityEvent(AccessibilityEvent event) {
+        try {
+            // Detección de pedidos nuevos: solo lee lo que ya está en pantalla (no baja ni toca nada)
+            if (event == null || ocupado) return;
+            int t = event.getEventType();
+            if (t != AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED && t != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return;
+            String plat = plataformaDe(String.valueOf(event.getPackageName()));
+            // DiDi necesita elegir la tarjeta naranja: sigue siendo solo con el botón
+            if (plat.isEmpty() || "DiDi".equals(plat)) return;
+            if (!Latido.capturaActiva(this)) return;
+            long ahora = System.currentTimeMillis();
+            if (ahora - ultimaDeteccion < 1500) return;
+            ultimaDeteccion = ahora;
+            AccessibilityNodeInfo raiz = getRootInActiveWindow();
+            if (raiz == null) return;
+            List<String> lineas = new ArrayList<>();
+            recolectar(raiz, lineas);
+            String texto = String.join("\n", lineas);
+            if (!LINEA_PRODUCTO.matcher(texto).find()) return;
+            String firma = Integer.toHexString(texto.hashCode());
+            if (firma.equals(ultimaFirmaDeteccion) && ahora - ultimaFirmaT < 120000) return;
+            ultimaFirmaDeteccion = firma;
+            ultimaFirmaT = ahora;
+            avisarDetectado(texto, plat);
+        } catch (Exception ignored) { }
+    }
+
+    private long ultimaDeteccion = 0, ultimaFirmaT = 0;
+    private String ultimaFirmaDeteccion = "";
+
+    /** Si la pantalla de Bee's está abierta, la pregunta ahí; si no, manda una notificación. */
+    private void avisarDetectado(String texto, String plat) {
+        MainActivity m = MainActivity.activa;
+        if (m != null) { m.pedidoDetectado(texto, plat); return; }
+        android.app.NotificationManager nm = (android.app.NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+        if (android.os.Build.VERSION.SDK_INT >= 26)
+            nm.createNotificationChannel(new android.app.NotificationChannel("pedidos", "Pedidos nuevos", android.app.NotificationManager.IMPORTANCE_HIGH));
+        Intent i = new Intent(this, MainActivity.class);
+        i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        android.app.PendingIntent pi = android.app.PendingIntent.getActivity(this, 0, i,
+                android.app.PendingIntent.FLAG_IMMUTABLE | android.app.PendingIntent.FLAG_UPDATE_CURRENT);
+        android.app.Notification n = new androidx.core.app.NotificationCompat.Builder(this, "pedidos")
+                .setSmallIcon(android.R.drawable.ic_dialog_info)
+                .setContentTitle("Se detectó pedido nuevo · " + plat)
+                .setContentText("Abre Bee's Captura y toca Registrar si es el pedido.")
+                .setAutoCancel(true).setContentIntent(pi).build();
+        nm.notify(4242, n);
+    }
 
     @Override
     public void onInterrupt() { }

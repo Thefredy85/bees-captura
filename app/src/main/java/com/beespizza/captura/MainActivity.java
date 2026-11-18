@@ -41,9 +41,24 @@ public class MainActivity extends Activity {
     private long ultimaRevision = 0;
     private String infoVersion = null;   // version.json publicado, para el aviso de APK nuevo
 
+    /** La pantalla de Bee's mientras está abierta (para preguntar si registrar un pedido detectado). */
+    static MainActivity activa;
+
+    /** El servicio de accesibilidad detectó un pedido nuevo en la app de delivery. */
+    void pedidoDetectado(String texto, String plat) {
+        runOnUiThread(() -> js("window.pedidoDetectado && pedidoDetectado(" + JSONObject.quote(texto) + "," + JSONObject.quote(plat) + ")"));
+    }
+
+    @Override
+    protected void onDestroy() {
+        if (activa == this) activa = null;
+        super.onDestroy();
+    }
+
     @Override
     protected void onCreate(Bundle b) {
         super.onCreate(b);
+        activa = this;
         web = new WebView(this);
         WebSettings s = web.getSettings();
         s.setJavaScriptEnabled(true);

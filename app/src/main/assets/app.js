@@ -27,6 +27,7 @@ const EN_EXCEL = p => p !== 'Reservándonos';
 let dict = Object.assign({}, DEFAULT_DICT, store.get('bees.dict', {}));
 let texto = '', plataformaHint = '', metodo = '';
 let order = null, resumen = null, estadoConf = 'vacio';   // vacio | pedido | resumen | registrado
+let detectado = false, autoOn = false;   // pedido detectado en pantalla (pregunta) · registro automático (solo admin, 30 min)
 let ultimoMsg = '', viewDay = hoy(), filtro = '', abierta = null, porQuitar = null, conTodos = false;
 const vistos = new Set();
 
@@ -85,6 +86,8 @@ async function refrescar(day = viewDay){
     if (ra.ok) { const a = await ra.json(); if (a[0]) ponerCapturaLocal(a[0].valor !== false); }
     const rf = await sb('GET', 'delivery_ajustes', '?select=valor&clave=eq.fotos_delivery');
     if (rf.ok) { const f = await rf.json(); if (f[0]) fotosOn = f[0].valor !== false; }
+    const ru = await sb('GET', 'delivery_ajustes', '?select=valor&clave=eq.auto_registro');
+    if (ru.ok) { const u = await ru.json(); if (u[0]) { const v = u[0].valor || {}; autoOn = !!v.activa && Date.parse(v.hasta) > Date.now(); } }
     syncInfo = {ok:true, txt:'Actualizado ' + hhmm(Date.now())};
   } catch(e) { syncInfo = {ok:false, txt:'Sin conexión: se guarda aquí y se sube después'}; }
   pintarSync();
@@ -212,6 +215,7 @@ function pantallaPedido(){
   const fechaDistinta = modoReg && order.date && order.date !== modoReg.dia;
   if (fechaDistinta && !fechaOk) pend.push(['La pantalla dice otra fecha', 'chFecha']);
   const chips = [];
+  if (detectado) chips.push('<span class="chip warn" id="chDet">🔔 <b>Se detectó pedido nuevo.</b> ¿Deseas registrarlo?</span>');
   for (const a of order.alerts) chips.push(`<span class="chip bad">⚠ ${esc(a)}</span>`);
   if (order.mixedNumbers) chips.push('<span class="chip bad" id="chMix">⚠ Las capturas son de pedidos distintos: captura uno a la vez</span>');
   if (dup.igual) chips.push(`<span class="chip bad">✓ Ya registrado${dup.igual.time ? ' a las ' + esc(dup.igual.time) : ''}${SYNC() ? ' (puede ser de otra tableta)' : ''}</span>`);
@@ -302,6 +306,7 @@ function enlazarPedido(){
 }
 let ultimoId = null;
 function registrar(){
+  detectado = false;
   const xl = excelLines(order), day = dayOf(), dup = buscarDup(day);
   if (dup.igual) { aviso('Este pedido ya está en el registro.', true); return; }
   let id = idDe(day, order.platform, order.number);
@@ -723,6 +728,7 @@ async function pintarAjustesSup(){
     <div class="card" style="display:grid;gap:10px">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:12px"><div><b>Captura de pedidos</b><div class="hint">Aplica a las 4 tabletas. Los avisos a Telegram siguen aunque esté apagada.</div></div><button class="sw" type="button" role="switch" id="swCaptura" aria-checked="${capturaOn}" aria-label="Captura de pedidos"></button></div>
       <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;border-top:1px solid var(--line);padding-top:10px"><div><b>Fotos de pedidos de delivery</b><div class="hint">Si está apagado, ya no se piden fotos en Telegram ni se avisa de pedidos sin foto.</div></div><button class="sw" type="button" role="switch" id="swFotos" aria-checked="${fotosOn}" aria-label="Fotos de pedidos de delivery"></button></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;border-top:1px solid var(--line);padding-top:10px"><div><b>Registro automático</b><div class="hint">Apagado por defecto. Solo el administrador lo activa y se apaga solo a los 30 min. Registra solo pedidos completos y sin dudas.</div></div><button class="sw" type="button" role="switch" id="swAuto" aria-checked="${autoOn}" aria-label="Registro automático"></button></div>
       <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;border-top:1px solid var(--line);padding-top:10px"><div><b>Modo registro de días pasados</b><div class="hint">${modoReg ? 'Activo: ' + esc(nombreDia(modoReg.dia)) : 'Hasta 30 días atrás, para ponerse al corriente.'}</div></div><button class="btn small" type="button" id="ajModo" style="background:var(--past);color:#fff">${modoReg ? 'Cambiar' : 'Empezar'}</button></div>
     </div>
     <div class="card" style="display:grid;gap:8px">
@@ -742,6 +748,12 @@ async function pintarAjustesSup(){
   $('swCaptura').onclick = async () => {
     const v = !capturaOn, ss = supVigente(); if (!ss) { $('ajustes').hidden = true; return; }
     try { const r = await rpc('delivery_sup', {accion:'captura', pin:ss.pin, d:{activa:v}}); ponerCapturaLocal(r.captura !== false); aviso(capturaOn ? 'Captura activada en todas las tabletas' : 'Captura desactivada en todas las tabletas'); }
+    catch(e) { aviso(e.message, true); }
+    pintarAjustesSup();
+  };
+  $('swAuto').onclick = async () => {
+    const v = !autoOn, ss = supVigente(); if (!ss) { $('ajustes').hidden = true; return; }
+    try { const r = await rpc('delivery_auto', {pin:ss.pin, d:{activa:v, minutos:30}}); autoOn = !!r.activa && Date.parse(r.hasta) > Date.now(); aviso(autoOn ? 'Registro automático activado por 30 min' : 'Registro automático apagado'); }
     catch(e) { aviso(e.message, true); }
     pintarAjustesSup();
   };
@@ -791,6 +803,7 @@ setInterval(reloj, 15000); reloj();
 
 // La tableta manda aquí lo que leyó de la pantalla
 window.cargarCaptura = async (t, plataforma, met) => {
+  detectado = false;
   texto = String(t || ''); plataformaHint = PLATS.includes(plataforma) ? plataforma : ''; metodo = met || '';
   order = null; resumen = null; fechaOk = false; verInfo = false; ultimoId = null; leer();
   if (modoReg) tocarModo();
@@ -803,6 +816,21 @@ window.cargarCaptura = async (t, plataforma, met) => {
   }
   const d = resumen ? (resumen.dia || hoy()) : dayOf();
   if (SYNC()) { await refrescar(d); pintarConfirmar(); }
+};
+/* Pedido detectado en pantalla (sin tocar nada): si la lectura está completa y es nuevo, lo pregunta.
+   Con el registro automático activo y limpio, lo registra y avisa. Nunca pisa un pedido que se está revisando. */
+window.pedidoDetectado = async (t, plataforma) => {
+  if (!SYNC() || (estadoConf === 'pedido' && order)) return;
+  await refrescar(dayOf());
+  texto = String(t || ''); plataformaHint = PLATS.includes(plataforma) ? plataforma : ''; metodo = 'detectado';
+  order = null; resumen = null; fechaOk = false; verInfo = false; ultimoId = null; leer();
+  const completo = order && order.platform && order.number && order.products.length && order.total != null
+    && !order.numDudoso && !order.mixedNumbers && (!order.expected || order.readQty === order.expected);
+  if (!completo) return;                        // lectura incompleta: no molesta; queda el botón
+  if (buscarDup(dayOf()).igual) return;         // ya está en el registro
+  const limpio = !excelLines(order).pending && !order.alerts.length && !buscarDup(dayOf()).otros.length && !modoReg;
+  if (autoOn && limpio) { await registrar(); aviso('Pedido #' + order.number + ' registrado automáticamente.'); return; }
+  detectado = true; ir('vConfirmar'); pintarConfirmar();
 };
 window.actualizarEstado = () => { pintarAjustes(); if (estadoConf === 'vacio') pintarConfirmar(); if (SYNC()) subirCola(); };
 
