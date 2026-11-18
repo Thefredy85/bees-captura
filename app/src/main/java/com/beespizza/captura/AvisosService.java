@@ -53,6 +53,8 @@ public class AvisosService extends NotificationListenerService {
             String pkg = sbn.getPackageName();
             String plat = CapturaService.plataformaDe(pkg);
             if (plat.isEmpty()) return;
+            // Un celular del administrador nunca reenvía avisos (son notificaciones personales)
+            if ("celular".equals(prefs(this).getString("rol", "tableta"))) return;
             Latido.recordarPlataforma(this, plat);
             Notification n = sbn.getNotification();
             if (n == null) return;
@@ -96,6 +98,8 @@ public class AvisosService extends NotificationListenerService {
                 o.put("titulo", titulo.length() > 200 ? titulo.substring(0, 200) : titulo);
                 o.put("texto", cuerpo.length() > 1000 ? cuerpo.substring(0, 1000) : cuerpo);
                 o.put("tableta", plat);
+                String id = android.provider.Settings.Secure.getString(getContentResolver(), android.provider.Settings.Secure.ANDROID_ID);
+                if (id != null) o.put("dispositivo", id);
                 h = (HttpURLConnection) new URL(SB).openConnection();
                 h.setRequestMethod("POST");
                 h.setConnectTimeout(15000);

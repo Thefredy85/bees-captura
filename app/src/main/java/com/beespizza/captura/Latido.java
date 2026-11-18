@@ -107,6 +107,7 @@ final class Latido {
                     while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
                 }
                 JSONObject r = new JSONObject(out.toString("UTF-8"));
+                if (r.has("rol")) prefs(c).edit().putString("rol", r.optString("rol", "tableta")).apply();
                 if (r.has("captura")) aplicarCaptura(c, r.optBoolean("captura", true));
             } catch (Exception ignored) {
             } finally { if (con != null) con.disconnect(); }

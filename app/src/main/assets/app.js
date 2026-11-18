@@ -83,6 +83,8 @@ async function refrescar(day = viewDay){
     if (rr.ok) remotoRes[day] = await rr.json();
     const ra = await sb('GET', 'delivery_ajustes', '?select=valor&clave=eq.captura');
     if (ra.ok) { const a = await ra.json(); if (a[0]) ponerCapturaLocal(a[0].valor !== false); }
+    const rf = await sb('GET', 'delivery_ajustes', '?select=valor&clave=eq.fotos_delivery');
+    if (rf.ok) { const f = await rf.json(); if (f[0]) fotosOn = f[0].valor !== false; }
     syncInfo = {ok:true, txt:'Actualizado ' + hhmm(Date.now())};
   } catch(e) { syncInfo = {ok:false, txt:'Sin conexión: se guarda aquí y se sube después'}; }
   pintarSync();
@@ -687,6 +689,7 @@ addEventListener('resize', medir);
 
 /* ---------- Interruptor de captura ---------- */
 let capturaOn = (() => { try { const e = APP ? JSON.parse(window.Android.estado()) : {}; return e.captura !== false; } catch(e) { return true; } })();
+let fotosOn = true;
 function ponerCapturaLocal(v){
   if (v === capturaOn) return;
   capturaOn = v;
@@ -719,6 +722,7 @@ async function pintarAjustesSup(){
     </div>
     <div class="card" style="display:grid;gap:10px">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:12px"><div><b>Captura de pedidos</b><div class="hint">Aplica a las 4 tabletas. Los avisos a Telegram siguen aunque esté apagada.</div></div><button class="sw" type="button" role="switch" id="swCaptura" aria-checked="${capturaOn}" aria-label="Captura de pedidos"></button></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;border-top:1px solid var(--line);padding-top:10px"><div><b>Fotos de pedidos de delivery</b><div class="hint">Si está apagado, ya no se piden fotos en Telegram ni se avisa de pedidos sin foto.</div></div><button class="sw" type="button" role="switch" id="swFotos" aria-checked="${fotosOn}" aria-label="Fotos de pedidos de delivery"></button></div>
       <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;border-top:1px solid var(--line);padding-top:10px"><div><b>Modo registro de días pasados</b><div class="hint">${modoReg ? 'Activo: ' + esc(nombreDia(modoReg.dia)) : 'Hasta 30 días atrás, para ponerse al corriente.'}</div></div><button class="btn small" type="button" id="ajModo" style="background:var(--past);color:#fff">${modoReg ? 'Cambiar' : 'Empezar'}</button></div>
     </div>
     <div class="card" style="display:grid;gap:8px">
@@ -738,6 +742,12 @@ async function pintarAjustesSup(){
   $('swCaptura').onclick = async () => {
     const v = !capturaOn, ss = supVigente(); if (!ss) { $('ajustes').hidden = true; return; }
     try { const r = await rpc('delivery_sup', {accion:'captura', pin:ss.pin, d:{activa:v}}); ponerCapturaLocal(r.captura !== false); aviso(capturaOn ? 'Captura activada en todas las tabletas' : 'Captura desactivada en todas las tabletas'); }
+    catch(e) { aviso(e.message, true); }
+    pintarAjustesSup();
+  };
+  $('swFotos').onclick = async () => {
+    const v = !fotosOn, ss = supVigente(); if (!ss) { $('ajustes').hidden = true; return; }
+    try { const r = await rpc('delivery_fotos', {pin:ss.pin, d:{activa:v}}); fotosOn = r.fotos !== false; aviso(fotosOn ? 'Fotos de delivery activadas' : 'Fotos de delivery desactivadas'); }
     catch(e) { aviso(e.message, true); }
     pintarAjustesSup();
   };
