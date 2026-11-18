@@ -151,6 +151,7 @@ public class MainActivity extends Activity {
                 o.put("avisos", AvisosService.activo(MainActivity.this));
                 o.put("web", Actualizador.webActiva(MainActivity.this));
                 o.put("captura", Latido.capturaActiva(MainActivity.this));
+                o.put("rol", AvisosService.prefs(MainActivity.this).getString("rol", "tableta"));
                 o.put("plat", AvisosService.prefs(MainActivity.this).getString("plat_tableta", ""));
                 o.put("modelo", Build.MANUFACTURER + " " + Build.MODEL);
                 o.put("id", Settings.Secure.getString(getContentResolver(), Settings.Secure.ANDROID_ID));

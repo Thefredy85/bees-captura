@@ -729,8 +729,8 @@ async function pintarAjustesSup(){
       <b>Estado de las tabletas</b>
       <div>${filasTab}</div>
       <p class="hint" style="margin:0">Si una deja de reportarse 10 min, se queda con poca batería o pierde permisos, llega aviso a Telegram (todos los días 11:00 a.m.–11:30 p.m.; viernes y sábado hasta 4:30 a.m.).</p>
-      <label class="eyebrow" for="ajPlat">Esta tableta es de</label>
-      <select id="ajPlat"><option value="">— Elegir —</option>${PLATS.map(p => `<option ${est.plat === p ? 'selected' : ''}>${p}</option>`).join('')}</select>
+      ${est.rol === 'celular' ? '' : `<label class="eyebrow" for="ajPlat">Esta tableta es de</label>
+      <select id="ajPlat"><option value="">— Elegir —</option>${PLATS.map(p => `<option ${est.plat === p ? 'selected' : ''}>${p}</option>`).join('')}</select>`}
     </div>
     ${s.admin ? `<div class="card" style="display:grid;gap:8px">
       <b>Supervisores</b>
@@ -752,7 +752,7 @@ async function pintarAjustesSup(){
     pintarAjustesSup();
   };
   $('ajModo').onclick = () => { $('ajustes').hidden = true; abrirModoRegistro(); };
-  $('ajPlat').onchange = e => { if (APP && window.Android.ponerPlataforma) window.Android.ponerPlataforma(e.target.value); aviso('Listo: esta tableta es de ' + e.target.value); };
+  if ($('ajPlat')) $('ajPlat').onchange = e => { if (APP && window.Android.ponerPlataforma) window.Android.ponerPlataforma(e.target.value); aviso('Listo: esta tableta es de ' + e.target.value); };
   if (s.admin) {
     const guardar = async d => { try { supLista = await rpc('delivery_sup', {accion:'guardar', pin:s.pin, d}); if (d.pin && d.id && supLista && s.nombre === d.nombre) s.pin = d.pin; supEdit = null; aviso('Supervisor guardado'); } catch(e) { aviso(e.message, true); } pintarAjustesSup(); };
     $('snOk').onclick = () => guardar({nombre:$('snNom').value, pin:$('snPin').value});
