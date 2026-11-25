@@ -35,14 +35,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
 .sync.off{background:var(--bad-soft);color:var(--bad)} .sync.warn{background:var(--warn-soft);color:var(--warn)}
 .clock{font:600 20px/1 var(--display)}
 .icon-btn{width:44px;height:44px;border-radius:12px;border:1px solid var(--line);background:var(--surface);display:grid;place-items:center;flex:none}
-/* Celular (modo administrador): la barra de arriba cabe sin salirse */
-@media (max-width:560px){
-  .top{gap:10px;padding-left:max(16px,env(safe-area-inset-left));padding-right:max(16px,env(safe-area-inset-right))}
-  .top h1{font-size:19px}
-  .top .clock{display:none}
-  .sync{min-width:0;padding:7px 11px}
-  .sync span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-}
+
 
 main{padding:20px max(20px,env(safe-area-inset-right)) 120px max(20px,env(safe-area-inset-left))}
 .vista{animation:aparece .3s cubic-bezier(.2,.8,.2,1) both}
@@ -272,6 +265,40 @@ pre.corte{margin:12px 0 0;white-space:pre-wrap;font:14px/1.6 ui-monospace,Menlo,
 .sup-fila:first-child{border-top:0}
 .tarde{font-size:12px;color:var(--past);font-weight:700}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+/* ---------- Diseño para celular y para las tablets chicas (vertical u horizontal) ---------- */
+.clock,.sync span{white-space:nowrap}
+.sync{min-width:0}
+.sync span{overflow:hidden;text-overflow:ellipsis}
+/* El contenido centrado nunca puede ser más ancho que la pantalla */
+.vacio,.exito{grid-template-columns:minmax(0,1fr)}
+/* Botones de «¡Registrado!»: en columna, del mismo ancho y centrados; en pantallas anchas, en fila */
+.ex-btns{display:grid;gap:10px;width:min(420px,100%)}
+.ex-btns .bt{justify-content:center;width:100%}
+@media (min-width:900px){.ex-btns{grid-auto-flow:column;grid-auto-columns:max-content;width:auto;justify-content:center}.ex-btns .bt{width:auto}}
+@media (max-width:760px){
+  .top .clock{display:none}
+  /* Barra de Volver / Registrar: los dos botones del mismo ancho, a todo lo ancho */
+  .accion .acc-btns{margin-left:0;width:100%;flex-wrap:nowrap}
+  .accion .acc-btns .bt{flex:1 1 0;justify-content:center;padding:0 12px;min-width:0}
+}
+@media (max-width:560px){
+  .top{gap:10px;padding-left:max(16px,env(safe-area-inset-left));padding-right:max(16px,env(safe-area-inset-right))}
+  .top h1{font-size:19px}
+  .sync{padding:7px 11px}
+  .bt{font-size:17px}
+  .vacio h2{font-size:26px}
+}
+/* Registro: el total ocupa más espacio para que las 4 plataformas queden parejas (sin una sola en su renglón) */
+@media (max-width:860px){.stats .stat.total{grid-column:span 2}}
+@media (max-width:520px){.stats .stat.total{grid-column:1/-1}}
+@media (max-width:760px){.fila .tt small{display:none}}
+/* Tablets en horizontal (pantalla baja): menos espacio arriba para que el menú no tape los botones */
+@media (max-height:640px){
+  .vacio,.exito{padding:12px 16px 24px;gap:10px}
+  .vacio .big{width:92px;height:104px}
+  .exito .check{width:96px;height:108px}
+  .exito h2{font-size:28px}
+}
 </style>
 </head>
 <body>

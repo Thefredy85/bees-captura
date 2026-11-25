@@ -337,7 +337,7 @@ function pantallaExito(){
     <div class="check hex" aria-hidden="true"><svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg></div>
     <h2>¡Registrado!</h2><p class="hint" style="font-size:17px;margin:0">${esc(ultimoMsg)}</p>
     ${APP && ultimoId ? '<p class="hint" style="margin:0">Regresando a la app de pedidos…</p><div class="barra"><i></i></div>' : ''}
-    <div style="display:flex;gap:10px;flex-wrap:wrap;justify-content:center">
+    <div class="ex-btns">
       ${APP ? '<button class="bt go" id="exVolver" type="button">Volver a la app de pedidos</button>' : ''}
       ${ultimoId ? '<button class="bt lt" id="exDeshacer" type="button">Deshacer</button>' : ''}
       <button class="bt lt" id="exVer" type="button">Ver registro del día</button>
