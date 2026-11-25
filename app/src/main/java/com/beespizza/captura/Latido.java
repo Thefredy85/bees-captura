@@ -36,7 +36,13 @@ final class Latido {
     static SharedPreferences prefs(Context c) { return AvisosService.prefs(c); }
 
     /** ¿Está activada la captura de pedidos? (lo decide un supervisor para todas las tabletas) */
-    static boolean capturaActiva(Context c) { return prefs(c).getBoolean("captura", true); }
+    static boolean capturaActiva(Context c) { return capturaGlobal(c) && !esAdmin(c); }
+
+    /** El interruptor de captura que decide el supervisor (sin importar el modo de este equipo). */
+    static boolean capturaGlobal(Context c) { return prefs(c).getBoolean("captura", true); }
+
+    /** Este equipo se eligió como Administrador: no lee pedidos ni reenvía avisos. */
+    static boolean esAdmin(Context c) { return "admin".equals(prefs(c).getString("modo", "")); }
 
     /** De qué plataforma es esta tableta (la última app de pedidos que avisó o se capturó aquí). */
     static void recordarPlataforma(Context c, String plat) {
@@ -86,6 +92,8 @@ final class Latido {
                 }
                 d.put("avisos", AvisosService.activo(c));
                 d.put("lectura", CapturaService.instancia != null);
+                String modo = prefs(c).getString("modo", "");
+                if (!modo.isEmpty()) d.put("rol", "admin".equals(modo) ? "celular" : "tableta");
                 JSONObject cuerpo = new JSONObject();
                 cuerpo.put("d", d);
 
@@ -107,7 +115,8 @@ final class Latido {
                     while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
                 }
                 JSONObject r = new JSONObject(out.toString("UTF-8"));
-                if (r.has("rol")) prefs(c).edit().putString("rol", r.optString("rol", "tableta")).apply();
+                // Mientras el equipo no elija su modo, se usa el que tenga la base
+                if (r.has("rol") && prefs(c).getString("modo", "").isEmpty()) prefs(c).edit().putString("rol", r.optString("rol", "tableta")).apply();
                 if (r.has("captura")) aplicarCaptura(c, r.optBoolean("captura", true));
             } catch (Exception ignored) {
             } finally { if (con != null) con.disconnect(); }

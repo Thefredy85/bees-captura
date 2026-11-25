@@ -34,7 +34,15 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
 .sync i{width:8px;height:8px;border-radius:50%;background:currentColor}
 .sync.off{background:var(--bad-soft);color:var(--bad)} .sync.warn{background:var(--warn-soft);color:var(--warn)}
 .clock{font:600 20px/1 var(--display)}
-.icon-btn{width:44px;height:44px;border-radius:12px;border:1px solid var(--line);background:var(--surface);display:grid;place-items:center}
+.icon-btn{width:44px;height:44px;border-radius:12px;border:1px solid var(--line);background:var(--surface);display:grid;place-items:center;flex:none}
+/* Celular (modo administrador): la barra de arriba cabe sin salirse */
+@media (max-width:560px){
+  .top{gap:10px;padding-left:max(16px,env(safe-area-inset-left));padding-right:max(16px,env(safe-area-inset-right))}
+  .top h1{font-size:19px}
+  .top .clock{display:none}
+  .sync{min-width:0;padding:7px 11px}
+  .sync span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+}
 
 main{padding:20px max(20px,env(safe-area-inset-right)) 120px max(20px,env(safe-area-inset-left))}
 .vista{animation:aparece .3s cubic-bezier(.2,.8,.2,1) both}
@@ -174,6 +182,8 @@ pre.corte{margin:12px 0 0;white-space:pre-wrap;font:14px/1.6 ui-monospace,Menlo,
 .panel h2{margin:0;font:800 26px/1.1 var(--display)}
 .toast{position:fixed;left:50%;bottom:calc(100px + env(safe-area-inset-bottom));transform:translateX(-50%);z-index:50;background:var(--ok);color:#fff;border-radius:14px;padding:12px 18px;font-weight:700;box-shadow:0 12px 30px -10px rgba(0,0,0,.4);animation:entra .3s both;max-width:calc(100% - 32px)}
 .toast.bad{background:var(--bad)}
+/* Centrado sin transform: la animación «entra» deja transform:none */
+.toast{left:0;right:0;margin-inline:auto;width:max-content;transform:none}
 .nueva{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:12px max(20px,env(safe-area-inset-right)) 0 max(20px,env(safe-area-inset-left));padding:12px 16px;border-radius:16px;background:var(--ink);color:#fff;animation:entra .3s both}
 .nueva .hex{width:22px;height:25px;background:var(--honey);flex:none}
 .nueva b{font-size:17px}.nueva span{color:#d9d1bd;flex:1;min-width:180px}
@@ -226,6 +236,26 @@ pre.corte{margin:12px 0 0;white-space:pre-wrap;font:14px/1.6 ui-monospace,Menlo,
 .pin-dots.mal{animation:sacude .35s}
 @keyframes sacude{25%{transform:translateX(-8px)}75%{transform:translateX(8px)}}
 .teclado{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+/* Modo del equipo y modo administrador */
+.admin .dock button[data-v="vConfirmar"],.admin .solo-registro,.admin #btnModoReg{display:none!important}
+.candado{background:var(--bg)}
+.candado .panel{height:auto;border-radius:24px;width:min(400px,100%);text-align:center;display:grid;gap:12px;justify-items:center}
+.candado h2,.elegir h2{margin:0;font:800 26px/1.15 var(--display)}
+.elegir{height:auto;max-height:100%;border-radius:24px;width:min(480px,100%)}
+.opcion{display:flex;gap:14px;align-items:flex-start;text-align:left;width:100%;border:2px solid var(--line);background:var(--surface);border-radius:18px;padding:16px;font:inherit;color:var(--ink);cursor:pointer}
+.opcion:active,.opcion:focus-visible{border-color:var(--ink)}
+.opcion .ico{font-size:30px;line-height:1}
+.opcion b{display:block;font:800 19px/1.2 var(--display);margin-bottom:4px}
+.opcion .hint{display:block}
+.cr-campos{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.cr-campos label{display:grid;gap:4px;min-width:0}
+.cr-campos input{width:100%;box-sizing:border-box}
+.cr-items{list-style:none;margin:0;padding:0;display:grid;gap:6px}
+.cr-items li{display:flex;align-items:center;justify-content:space-between;gap:10px;background:var(--surface);border-radius:12px;padding:8px 10px}
+.cr-items li>span:first-child{min-width:0;overflow-wrap:anywhere;font-weight:600}
+.cr-q{display:flex;align-items:center;gap:6px;flex:none}
+.cr-q button{width:36px;height:36px;border-radius:10px;border:1.5px solid var(--line);background:var(--bg);font:800 18px var(--display);color:var(--ink)}
+.cr-q b{min-width:22px;text-align:center}
 .teclado button{border:0;background:var(--surface);border-radius:16px;min-height:62px;font:800 26px var(--display);box-shadow:0 1px 0 var(--line)}
 .cal{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px;text-align:center}
 .cal b{font-size:12px;color:var(--muted);padding:2px 0}
@@ -290,7 +320,7 @@ pre.corte{margin:12px 0 0;white-space:pre-wrap;font:14px/1.6 ui-monospace,Menlo,
   <div class="panel" role="dialog" aria-modal="true" aria-labelledby="ajTit">
     <div style="display:flex;justify-content:space-between;align-items:center"><h2 id="ajTit">Ajustes</h2><button class="icon-btn" id="ajCerrar" type="button" aria-label="Cerrar ajustes">✕</button></div>
     <div id="ajSup" style="display:grid;gap:14px"></div>
-    <div class="card" style="display:grid;gap:10px">
+    <div class="card solo-registro" style="display:grid;gap:10px">
       <div style="display:flex;justify-content:space-between;align-items:center"><b>Botón Capturar</b><span class="chip" id="ajBoton">—</span></div>
       <p class="hint" id="ajBotonTxt" style="margin:0"></p>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
@@ -298,7 +328,7 @@ pre.corte{margin:12px 0 0;white-space:pre-wrap;font:14px/1.6 ui-monospace,Menlo,
         <button class="btn small ghost" id="ajInfo" type="button">Permitir ajustes restringidos</button>
       </div>
     </div>
-    <div class="card" style="display:grid;gap:10px">
+    <div class="card solo-registro" style="display:grid;gap:10px">
       <div style="display:flex;justify-content:space-between;align-items:center"><b>Avisos al celular</b><span class="chip" id="ajAvisos">—</span></div>
       <p class="hint" id="ajAvisosTxt" style="margin:0"></p>
       <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn small dark" id="ajAvisosBtn" type="button">Activar acceso a notificaciones</button></div>
@@ -320,6 +350,8 @@ pre.corte{margin:12px 0 0;white-space:pre-wrap;font:14px/1.6 ui-monospace,Menlo,
     <p class="hint" id="ajVersion"></p>
   </div>
 </div>
+<div class="capa centro" id="elegirModo" hidden></div>
+<div class="capa centro candado" id="candado" hidden></div>
 <div class="capa centro" id="modal" hidden><div class="modal" role="dialog" aria-modal="true" id="modalCaja"></div></div>
 <div class="toast" id="toast" role="status" hidden></div>
 

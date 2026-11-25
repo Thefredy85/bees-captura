@@ -69,7 +69,7 @@ public class CapturaService extends AccessibilityService {
 
     /** Un supervisor activó o desactivó la captura en todas las tabletas. */
     void aplicarCaptura(boolean activa) {
-        if (activa) mostrarBurbuja();
+        if (activa && !Latido.esAdmin(this)) mostrarBurbuja();
         else if (!ocupado) quitarBurbuja();
     }
 
@@ -244,6 +244,10 @@ public class CapturaService extends AccessibilityService {
         paquete = String.valueOf(raiz.getPackageName());
         if (paquete.equals(getPackageName())) {
             aviso("Primero abre el pedido en Uber, DiDi, Rappi o Reservándonos.");
+            return;
+        }
+        if (Latido.esAdmin(this)) {
+            aviso("Este equipo está en modo administrador: no captura pedidos.");
             return;
         }
         if (!Latido.capturaActiva(this)) {

@@ -52,7 +52,7 @@ function filaAEntrada(r){
   return {id:r.id, dia:r.dia, platform:PNAME[r.plat]||r.plat, number:r.code, client:r.cust||'', created:r.created_at,
     time: r.created_at && isoDia(new Date(r.created_at)) === r.dia ? hhmm(r.created_at) : '',
     items:r.items||[], lines:r.lineas||[], total:r.total, totalNote:r.total_nota||'', sum:r.suma,
-    notes: r.nota ? [r.nota] : [], pendiente:false, tarde:!!r.tarde, por:r.por||''};
+    notes: r.nota ? [r.nota] : [], pendiente:false, tarde:!!r.tarde, por:r.por||'', corregido:r.corregido_por||''};
 }
 function entradaAFila(e){
   const f = {id:e.id, dia:e.dia, plat:PKEY[e.platform], code:e.number, cust:e.client||null, items:e.items, lineas:e.lines,
@@ -427,10 +427,10 @@ function pintarRegistro(){
   const lista = log.filter(o => !filtro || o.platform === filtro).slice().reverse();
   h += lista.length ? '<ul class="lista">' + lista.map(o => {
     const nueva = !vistos.has(o.id) && vistos.size > 0; vistos.add(o.id);
-    const det = abierta === o.id ? `<div class="det">${(o.notes||[]).length ? `<span class="nota">${esc(o.notes.join(' · '))}</span>` : ''}${o.pendiente ? '<span class="chip warn">Por subir</span>' : ''}<div style="flex:1"></div><button class="btn small ${porQuitar===o.id?'dark':'ghost'}" type="button" data-q="${esc(o.id)}">${porQuitar===o.id ? '¿Seguro? Toca otra vez para quitar' : 'Quitar del registro'}</button></div>` : '';
+    const det = abierta === o.id ? `<div class="det">${(o.notes||[]).length ? `<span class="nota">${esc(o.notes.join(' · '))}</span>` : ''}${o.pendiente ? '<span class="chip warn">Por subir</span>' : ''}<div style="flex:1"></div>${o.pendiente ? '' : `<button class="btn small ghost" type="button" data-cr="${esc(o.id)}">Corregir</button>`}<button class="btn small ${porQuitar===o.id?'dark':'ghost'}" type="button" data-q="${esc(o.id)}">${porQuitar===o.id ? '¿Seguro? Toca otra vez para quitar' : 'Quitar del registro'}</button></div>` : '';
     return `<li class="fila ${nueva?'nueva':''}" style="--c:${PCOLOR[o.platform]||'var(--muted)'}"><button type="button" data-o="${esc(o.id)}" aria-expanded="${abierta===o.id}">
       <span class="hr num">${esc(o.time || '—')}</span>
-      <span><span class="pl">${esc(o.platform)}</span><span class="id" style="display:block">#${esc(o.number)}${o.client ? ' · ' + esc(o.client) : ''}</span>${o.tarde ? `<span class="tarde" style="display:block">Registrado después${o.por ? ' · ' + esc(o.por) : ''}</span>` : ''}</span>
+      <span><span class="pl">${esc(o.platform)}</span><span class="id" style="display:block">#${esc(o.number)}${o.client ? ' · ' + esc(o.client) : ''}</span>${o.tarde ? `<span class="tarde" style="display:block">Registrado después${o.por ? ' · ' + esc(o.por) : ''}</span>` : ''}${o.corregido ? `<span class="tarde" style="display:block">Corregido por ${esc(o.corregido)}</span>` : ''}</span>
       <span class="prods">${(o.lines||[]).map(l => (l.qty>1?l.qty+' ':'') + esc(l.excel)).join(' · ') || '<span class="hint">Sin productos</span>'}</span>
       <span class="tt num">${dinero(o.total)}${o.totalNote ? `<small>${esc(o.totalNote)}</small>` : ''}</span>
     </button>${det}</li>`;
@@ -439,6 +439,7 @@ function pintarRegistro(){
   enlazarDia(el);
   el.querySelectorAll('[data-f]').forEach(b => b.onclick = () => { filtro = b.dataset.f; pintarRegistro(); });
   el.querySelectorAll('[data-o]').forEach(b => b.onclick = () => { abierta = abierta === b.dataset.o ? null : b.dataset.o; porQuitar = null; pintarRegistro(); });
+  el.querySelectorAll('[data-cr]').forEach(b => b.onclick = () => abrirCorregir(b.dataset.cr));
   el.querySelectorAll('[data-q]').forEach(b => b.onclick = () => { if (porQuitar !== b.dataset.q) { porQuitar = b.dataset.q; pintarRegistro(); } else { const id = b.dataset.q; conSupervisor('Quitar un pedido del registro', () => quitar(id)); } });
   const bm = $('btnModoReg'); if (bm) bm.onclick = abrirModoRegistro;
 }
@@ -549,8 +550,14 @@ function abrirAjustes(){ $('ajustes').hidden = false; pintarAjustes(); pintarAju
 function abrirAjustesConClave(){ if (!clave) abrirAjustes(); else conSupervisor('Entrar a Ajustes', abrirAjustes); }
 $('btnAjustes').onclick = abrirAjustesConClave;
 $('sync').onclick = abrirAjustesConClave;
-$('ajCerrar').onclick = () => { $('ajustes').hidden = true; pintarConfirmar(); };
-$('ajustes').onclick = e => { if (e.target.id === 'ajustes') { $('ajustes').hidden = true; pintarConfirmar(); } };
+function cerrarAjustes(){
+  $('ajustes').hidden = true;
+  if (!esAdmin()) sup = null;   // en las tabletas, cada entrada a Ajustes pide la clave
+  pintarConfirmar();
+  if (!modoEquipo) revisarModo();
+}
+$('ajCerrar').onclick = cerrarAjustes;
+$('ajustes').onclick = e => { if (e.target.id === 'ajustes') cerrarAjustes(); };
 function pintarAjustes(){
   let est = {}; try { est = APP ? JSON.parse(window.Android.estado()) : {}; } catch(e) {}
   const activo = !!est.lectura;
@@ -602,7 +609,7 @@ $('ajGuardarClave').onclick = async () => {
 };
 
 /* ---------- Modo supervisor ---------- */
-const SUP_MIN = 10;
+const SUP_MIN = 12 * 60;   // la sesión se cierra al salir de Ajustes (tableta) o al salir de la app (administrador)
 let sup = null;   // {nombre, admin, pin, hasta}
 const supVigente = () => sup && Date.now() < sup.hasta ? sup : null;
 async function rpc(fn, body){
@@ -645,6 +652,105 @@ function conSupervisor(motivo, sigue){
   };
   $('modal').hidden = false; pintar('Revisando…');
   rpc('delivery_sup', {accion:'estado'}).then(r => { primera = !r.hay; pintar(); }).catch(e => pintar(e.message, true));
+}
+
+/* ---------- Modo del equipo: tableta de registro o administrador ---------- */
+let modoEquipo = (() => { if (!APP) return 'admin'; try { return JSON.parse(window.Android.estado()).modo || ''; } catch(e) { return ''; } })();
+const esAdmin = () => modoEquipo === 'admin';
+function ponerModoEquipo(m){
+  modoEquipo = m;
+  if (APP && window.Android.ponerModo) { try { window.Android.ponerModo(m); } catch(e) {} }
+  aplicarModoUI();
+}
+function aplicarModoUI(){
+  document.body.classList.toggle('admin', esAdmin());
+  if (!esAdmin()) return;
+  if (!$('vConfirmar').hidden) ir('vRegistro');
+  if (!supVigente()) { bloquear(); pedirDesbloqueo(); }
+}
+/** La primera vez se elige el modo. Las tabletas que ya trabajaban (y el celular ya marcado) no preguntan. */
+function revisarModo(alArrancar){
+  if (modoEquipo) { aplicarModoUI(); return; }
+  if (alArrancar) {   // equipos que ya trabajaban antes de la 1.7: se deduce su modo sin preguntar
+    let est = {}; try { est = JSON.parse(window.Android.estado()); } catch(e) {}
+    if (est.rol === 'celular') { ponerModoEquipo('admin'); return; }
+    if (est.plat || clave) { ponerModoEquipo('registro'); return; }
+  }
+  pintarElegirModo();
+}
+function pintarElegirModo(){
+  const c = $('elegirModo');
+  c.innerHTML = `<div class="panel elegir" role="dialog" aria-modal="true" aria-labelledby="emTit">
+    <div class="eyebrow">Bee's Captura</div>
+    <h2 id="emTit">¿Cómo se usará este equipo?</h2>
+    <p class="hint" style="margin:0">Se elige una sola vez y se queda guardado aunque se apague. Para cambiarlo después se pide la clave de supervisor.</p>
+    <button type="button" class="opcion" id="emReg"><span class="ico" aria-hidden="true">🧾</span><span><b>Tableta de registro</b><span class="hint">Lee los pedidos de Uber, DiDi, Rappi o Reservándonos con el hexágono, avisa a Telegram y detecta pedidos nuevos.</span></span></button>
+    <button type="button" class="opcion" id="emAdm"><span class="ico" aria-hidden="true">🔑</span><span><b>Administrador</b><span class="hint">Para el celular del administrador o de un supervisor: ver pedidos, corregir y descargar el Excel. No lee pantallas ni reenvía notificaciones. Pide la clave cada vez que se abre.</span></span></button>
+  </div>`;
+  c.hidden = false;
+  $('emReg').onclick = () => { c.hidden = true; ponerModoEquipo('registro'); aviso('Listo: este equipo es tableta de registro.'); pintarTodo(); };
+  $('emAdm').onclick = () => {
+    if (!SYNC()) { c.hidden = true; abrirAjustes(); aviso('Primero escribe la clave de la sucursal y luego cierra Ajustes.', true); return; }
+    conSupervisor('Usar este equipo como administrador', () => { c.hidden = true; ponerModoEquipo('admin'); aviso('Listo: modo administrador.'); });
+  };
+}
+/* Candado del modo administrador: pide la clave cada vez que se abre la app */
+function bloquear(){
+  sup = null;
+  const c = $('candado');
+  c.innerHTML = `<div class="panel" role="dialog" aria-modal="true" aria-labelledby="cdTit"><div style="font-size:44px" aria-hidden="true">🔒</div><h2 id="cdTit">Modo administrador</h2><p class="hint" style="margin:0">Escribe tu clave de supervisor para ver los pedidos.</p><button class="btn primary" type="button" id="cdAbrir">Desbloquear</button></div>`;
+  c.hidden = false;
+  $('cdAbrir').onclick = pedirDesbloqueo;
+}
+function pedirDesbloqueo(){ if (!$('modal').hidden) return; conSupervisor('Entrar como administrador', () => { $('candado').hidden = true; pintarTodo(); }); }
+window.alSalir = () => { if (!esAdmin()) return; cerrarModal(); $('ajustes').hidden = true; bloquear(); };
+window.alVolver = () => { if (esAdmin() && !$('candado').hidden) pedirDesbloqueo(); };
+document.addEventListener('visibilitychange', () => { if (document.hidden) window.alSalir(); else window.alVolver(); });
+
+/* ---------- Corregir un pedido (con clave de supervisor) ---------- */
+function abrirCorregir(id){
+  const o = getLog().find(x => x.id === id); if (!o) return;
+  conSupervisor('Corregir ' + o.platform + ' #' + o.number, s => editorPedido(o, s));
+}
+const lineasDe = (platform, items) => EN_EXCEL(platform) ? marcas(items).lines.map(l => ({excel:l.excel, qty:l.qty})) : items.map(i => ({excel:i.n, qty:i.qty}));
+function editorPedido(o, s){
+  const items = (o.items || []).map(i => ({...i}));
+  const caja = $('modalCaja');
+  const opciones = CATALOG.map(c => `<optgroup label="${esc(c.cat)}">${c.names.map(n => `<option>${esc(n)}</option>`).join('')}</optgroup>`).join('');
+  let v = {num: String(o.number || ''), tot: o.total == null ? '' : String(o.total), cli: o.client || ''};
+  const leerCampos = () => { if ($('crNum')) v = {num:$('crNum').value, tot:$('crTot').value, cli:$('crCli').value}; };
+  const pintar = msg => {
+    caja.innerHTML = `<h2>Corregir ${esc(o.platform)} #${esc(o.number)}</h2>
+      <div class="cr-campos">
+        <label><span class="eyebrow">Número</span><input id="crNum" autocomplete="off"></label>
+        <label><span class="eyebrow">Total</span><input id="crTot" type="number" inputmode="decimal" step="0.01"></label>
+        <label style="grid-column:1/-1"><span class="eyebrow">Cliente</span><input id="crCli" autocomplete="off"></label>
+      </div>
+      <ul class="cr-items">${items.map((i,k) => `<li><span>${esc(i.n)}</span><span class="cr-q"><button type="button" data-m="${k}" aria-label="Uno menos de ${esc(i.n)}">−</button><b class="num">${i.qty}</b><button type="button" data-p="${k}" aria-label="Uno más de ${esc(i.n)}">+</button><button type="button" data-x="${k}" aria-label="Quitar ${esc(i.n)}">✕</button></span></li>`).join('') || '<li><span class="hint">Sin productos</span></li>'}</ul>
+      <select id="crAdd" aria-label="Agregar producto"><option value="">+ Agregar producto…</option>${opciones}</select>
+      ${msg ? `<div class="banner bad">${esc(msg)}</div>` : ''}
+      <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap"><button class="btn ghost" type="button" id="crNo">Cancelar</button><button class="btn primary" type="button" id="crSi">Guardar corrección</button></div>`;
+    $('crNum').value = v.num; $('crTot').value = v.tot; $('crCli').value = v.cli;
+    const cambia = f => () => { leerCampos(); f(); pintar(); };
+    caja.querySelectorAll('[data-m]').forEach(b => b.onclick = cambia(() => { const i = items[b.dataset.m]; if (i.qty > 1) i.qty--; }));
+    caja.querySelectorAll('[data-p]').forEach(b => b.onclick = cambia(() => { items[b.dataset.p].qty++; }));
+    caja.querySelectorAll('[data-x]').forEach(b => b.onclick = cambia(() => { items.splice(Number(b.dataset.x), 1); }));
+    $('crAdd').onchange = e => { const n = e.target.value; if (!n) return; leerCampos(); const ya = items.find(i => i.n === n && !i.parts); if (ya) ya.qty++; else items.push({n, qty:1}); pintar(); };
+    $('crNo').onclick = cerrarModal;
+    $('crSi').onclick = async () => {
+      leerCampos();
+      if (!v.num.trim()) { pintar('Escribe el número de pedido.'); return; }
+      if (!items.length) { pintar('El pedido no tiene productos: si ya no va, mejor quítalo del registro.'); return; }
+      const total = v.tot.trim() === '' ? null : Number(v.tot);
+      if (total != null && !(total >= 0)) { pintar('Revisa el total.'); return; }
+      $('crSi').disabled = true;
+      try {
+        await rpc('delivery_corregir', {pin:s.pin, id:o.id, d:{code:v.num.trim(), cust:v.cli.trim(), total, items, lineas:lineasDe(o.platform, items)}});
+        cerrarModal(); aviso('Pedido corregido.'); await refrescar(o.dia); pintarTodo();
+      } catch(e) { pintar(e.message); }
+    };
+  };
+  $('modal').hidden = false; pintar();
 }
 
 /* ---------- Modo registro (días pasados) ---------- */
@@ -722,20 +828,24 @@ async function pintarAjustesSup(){
   el.innerHTML = `
     <div class="card" style="display:grid;gap:8px;border-left:6px solid var(--past)">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:10px"><b>Modo supervisor</b><span class="chip past">🔒 ${esc(s.nombre)}${s.admin ? ' · administrador' : ''}</span></div>
-      <p class="hint" style="margin:0">Se cierra solo tras ${SUP_MIN} min sin usar Ajustes.</p>
-      <div><button class="btn small ghost" type="button" id="supSalir">Salir del modo supervisor</button></div>
+      <p class="hint" style="margin:0">${esAdmin() ? 'La sesión se cierra al salir de la app.' : 'Se cierra al salir de Ajustes: la próxima vez se vuelve a pedir la clave.'}</p>
+      <div><button class="btn small ghost" type="button" id="supSalir">${esAdmin() ? 'Bloquear la app' : 'Salir del modo supervisor'}</button></div>
     </div>
+    ${APP ? `<div class="card" style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+      <div style="min-width:0"><b>Modo de este equipo</b><div class="hint">${esAdmin() ? '🔑 Administrador: no lee pedidos ni reenvía avisos' : '🧾 Tableta de registro'}</div></div>
+      <button class="btn small ghost" type="button" id="ajCambiarModo">Cambiar a ${esAdmin() ? 'tableta de registro' : 'administrador'}</button>
+    </div>` : ''}
     <div class="card" style="display:grid;gap:10px">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:12px"><div><b>Captura de pedidos</b><div class="hint">Aplica a las 4 tabletas. Los avisos a Telegram siguen aunque esté apagada.</div></div><button class="sw" type="button" role="switch" id="swCaptura" aria-checked="${capturaOn}" aria-label="Captura de pedidos"></button></div>
       <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;border-top:1px solid var(--line);padding-top:10px"><div><b>Fotos de pedidos de delivery</b><div class="hint">Si está apagado, ya no se piden fotos en Telegram ni se avisa de pedidos sin foto.</div></div><button class="sw" type="button" role="switch" id="swFotos" aria-checked="${fotosOn}" aria-label="Fotos de pedidos de delivery"></button></div>
       <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;border-top:1px solid var(--line);padding-top:10px"><div><b>Registro automático</b><div class="hint">Apagado por defecto. Solo el administrador lo activa y se apaga solo a los 30 min. Registra solo pedidos completos y sin dudas.</div></div><button class="sw" type="button" role="switch" id="swAuto" aria-checked="${autoOn}" aria-label="Registro automático"></button></div>
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;border-top:1px solid var(--line);padding-top:10px"><div><b>Modo registro de días pasados</b><div class="hint">${modoReg ? 'Activo: ' + esc(nombreDia(modoReg.dia)) : 'Hasta 30 días atrás, para ponerse al corriente.'}</div></div><button class="btn small" type="button" id="ajModo" style="background:var(--past);color:#fff">${modoReg ? 'Cambiar' : 'Empezar'}</button></div>
+      <div class="solo-registro" style="display:flex;justify-content:space-between;align-items:center;gap:12px;border-top:1px solid var(--line);padding-top:10px"><div><b>Modo registro de días pasados</b><div class="hint">${modoReg ? 'Activo: ' + esc(nombreDia(modoReg.dia)) : 'Hasta 30 días atrás, para ponerse al corriente.'}</div></div><button class="btn small" type="button" id="ajModo" style="background:var(--past);color:#fff">${modoReg ? 'Cambiar' : 'Empezar'}</button></div>
     </div>
     <div class="card" style="display:grid;gap:8px">
       <b>Estado de las tabletas</b>
       <div>${filasTab}</div>
       <p class="hint" style="margin:0">Si una deja de reportarse 10 min, se queda con poca batería o pierde permisos, llega aviso a Telegram (todos los días 11:00 a.m.–11:30 p.m.; viernes y sábado hasta 4:30 a.m.).</p>
-      ${est.rol === 'celular' ? '' : `<label class="eyebrow" for="ajPlat">Esta tableta es de</label>
+      ${esAdmin() ? '' : `<label class="eyebrow" for="ajPlat">Esta tableta es de</label>
       <select id="ajPlat"><option value="">— Elegir —</option>${PLATS.map(p => `<option ${est.plat === p ? 'selected' : ''}>${p}</option>`).join('')}</select>`}
     </div>
     ${s.admin ? `<div class="card" style="display:grid;gap:8px">
@@ -744,7 +854,19 @@ async function pintarAjustesSup(){
       <div class="eyebrow" style="margin-top:6px">Agregar supervisor</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap"><input id="snNom" placeholder="Nombre" maxlength="30" style="flex:1;min-width:120px"><input id="snPin" inputmode="numeric" maxlength="4" placeholder="Clave de 4 números" style="width:170px"><button class="btn small" type="button" id="snOk" style="background:var(--honey)">Agregar</button></div>
     </div>` : ''}`;
-  $('supSalir').onclick = () => { sup = null; $('ajustes').hidden = true; aviso('Saliste del modo supervisor.'); pintarConfirmar(); };
+  $('supSalir').onclick = () => {
+    $('ajustes').hidden = true;
+    if (esAdmin()) { bloquear(); return; }
+    sup = null; aviso('Saliste del modo supervisor.'); pintarConfirmar();
+  };
+  const cm = $('ajCambiarModo');
+  if (cm) cm.onclick = () => {
+    const nuevo = esAdmin() ? 'registro' : 'admin';
+    $('ajustes').hidden = true;
+    ponerModoEquipo(nuevo);
+    if (nuevo === 'registro') { sup = null; ir('vConfirmar'); aviso('Este equipo ahora es tableta de registro.'); }
+    else aviso('Este equipo ahora es de administrador.');
+  };
   $('swCaptura').onclick = async () => {
     const v = !capturaOn, ss = supVigente(); if (!ss) { $('ajustes').hidden = true; return; }
     try { const r = await rpc('delivery_sup', {accion:'captura', pin:ss.pin, d:{activa:v}}); ponerCapturaLocal(r.captura !== false); aviso(capturaOn ? 'Captura activada en todas las tabletas' : 'Captura desactivada en todas las tabletas'); }
@@ -838,4 +960,5 @@ if (modoReg) viewDay = modoReg.dia;
 pintarModo();
 if (SYNC()) { refrescar(viewDay).then(() => { pintarTodo(); subirCola(); }); setInterval(() => { subirCola(); }, 60000); }
 pintarTodo();
+revisarModo(true);
 })();

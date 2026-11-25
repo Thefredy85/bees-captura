@@ -101,8 +101,15 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         actualizarEstado();
+        js("window.alVolver && alVolver()");   // modo administrador: pide la clave al volver
         if (recargaPendiente) recargarSiPuede();
         if (System.currentTimeMillis() - ultimaRevision > 20 * 60 * 1000) revisarActualizacion();
+    }
+
+    @Override
+    protected void onStop() {
+        js("window.alSalir && alSalir()");     // modo administrador: se bloquea al salir de la app o apagar la pantalla
+        super.onStop();
     }
 
     private void cargarPantalla() {
@@ -165,7 +172,8 @@ public class MainActivity extends Activity {
                 o.put("code", BuildConfigInfo.CODE);
                 o.put("avisos", AvisosService.activo(MainActivity.this));
                 o.put("web", Actualizador.webActiva(MainActivity.this));
-                o.put("captura", Latido.capturaActiva(MainActivity.this));
+                o.put("captura", Latido.capturaGlobal(MainActivity.this));
+                o.put("modo", AvisosService.prefs(MainActivity.this).getString("modo", ""));
                 o.put("rol", AvisosService.prefs(MainActivity.this).getString("rol", "tableta"));
                 o.put("plat", AvisosService.prefs(MainActivity.this).getString("plat_tableta", ""));
                 o.put("modelo", Build.MANUFACTURER + " " + Build.MODEL);
@@ -193,6 +201,16 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public void ponerCaptura(boolean activa) {
             Latido.aplicarCaptura(MainActivity.this, activa);
+        }
+
+        /** Modo de este equipo: «registro» (tableta que lee pedidos) o «admin» (solo ver y administrar). */
+        @JavascriptInterface
+        public void ponerModo(String m) {
+            String modo = "admin".equals(m) ? "admin" : "registro";
+            AvisosService.prefs(MainActivity.this).edit().putString("modo", modo)
+                    .putString("rol", "admin".equals(modo) ? "celular" : "tableta").apply();
+            runOnUiThread(() -> { if (CapturaService.instancia != null) CapturaService.instancia.aplicarCaptura(Latido.capturaGlobal(MainActivity.this)); });
+            Latido.ahora(MainActivity.this);
         }
 
         /** De qué plataforma es esta tableta (para los avisos de conexión). */
