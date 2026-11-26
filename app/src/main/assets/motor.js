@@ -59,7 +59,7 @@ function resolve(name, dict){
     const esp = (MIX_ESP.find(([re]) => re.test(k))||[])[1];
     return esp ? {excel:'Bee Mix Manía ('+esp+')', tipo:'producto'} : null;
   }
-  const kt = tokens(name);
+  const kt = tokens(String(name).replace(/(\d)\s*(pz|ml|l)\b/gi, '$1 $2'));   // «(8pz)» = «8 pz»
   let best = null, bestN = 0;
   for (const n of ALL_NAMES){
     const nt = tokens(n);
@@ -146,7 +146,10 @@ function prepass(lines){
   }
   return out;
 }
-const IGNORE = /^(datos de facturaci|tel\s*:|tengo un producto agotado|historial de [oó]rdenes|detalle de orden|bess?.?s pizza|aliados|rappitendero|estamos buscando|c[oó]digos rt|gestor de tiendas|turbo$|m[aá]s opciones|ir a detalles|pedido listo|aceptaci[oó]n autom|procesamiento restante|preparar pedido|llegar[aá] en|listo en \d+|listo$|ajustar pedido|un socio de la app|pedido cuando|cliente nuevo|no$|oferta especial|detalle de la orden|tiempo de la orden|direcci[oó]n de entrega|repartidor|uber_direct|tipo de pago|liquidaci[oó]n de pagos|los gastos de env|terminado$|aceptado$|despacho$|seguir en uber|vista$|listo para recoger|pedidos en vivo|nuevo$|aceptar$|procesando$|imprimir recibo|soporte didi|entregado$|costo de promoci|el usuario recibi|pedido recibido$|se inici[oó] la preparaci|el usuario repartidor|entrega iniciada|lleg[oó] a la ubicaci)/i;
+const IGNORE = /^(datos de facturaci|tel\s*:|tengo un producto agotado|historial de [oó]rdenes|detalle de orden|bess?.?s pizza|aliados|rappitendero|estamos buscando|c[oó]digos rt|gestor de tiendas|turbo$|m[aá]s opciones|ir a detalles|pedido listo|aceptaci[oó]n autom|procesamiento restante|preparar pedido|llegar[aá] en|listo en \d+|listo$|ajustar pedido|un socio de la app|pedido cuando|cliente nuevo|no$|oferta especial|detalle de la orden|tiempo de la orden|direcci[oó]n de entrega|repartidor|uber_direct|tipo de pago|liquidaci[oó]n de pagos|los gastos de env|terminado$|aceptado$|despacho$|seguir en uber|vista$|listo para recoger|pedidos en vivo|nuevo$|aceptar$|procesando$|imprimir recibo|soporte didi|entregado$|costo de promoci|el usuario recibi|pedido recibido$|se inici[oó] la preparaci|el usuario repartidor|entrega iniciada|lleg[oó] a la ubicaci|completado$|calificar|obtener ayuda|calificaci[oó]n enviada|\d+\s+pedidos? (anteriores|entregados)|\d+\s*%$|cliente recurrente|ajuste de la cuota|cuota de servicio)/i;
+// Tamaño de la pizza: «35 cm» / «40 cm» (respuesta a «Elige tu tamaño») o pegado al nombre («Bee Classic 35cm»)
+const TAM = /^\(?(35|40)\s?cm\.?\)?$/i;
+const TAM_FIN = /\s*\(?\b(35|40)\s?cm\.?\)?\s*$/i;
 const MONTHS = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
 const DATE2 = /\b(ene|feb|mar|abr|may|jun|jul|ago|sep|oct|nov|dic)[a-z]*\.?\s+(\d{1,2}),?\s+(\d{4})\b/i;
 const DATE = new RegExp('\\b(\\d{1,2})\\s+(?:de\\s+)?('+MONTHS.join('|')+')\\s+(?:de\\s+)?(\\d{4})\\b','i');
@@ -229,7 +232,9 @@ function parseSegment(lines, dict){
       mode='';
       const qty = parseInt(m[1].replace(/[lIi|]/g,'1'),10) || 1;
       const promo = /promoci[oó]n/i.test(m[2]);
-      const name = m[2].replace(/\s+promoci[oó]n\s*$/i,'').trim();
+      let name = m[2].replace(/\s+promoci[oó]n\s*$/i,'').trim();
+      if (inMod && cur && TAM.test(name)) { cur.tam = name.match(TAM)[1]; inMod = false; lastWasMod = true; continue; }   // DiDi: «1x 40 cm»
+      let tam = null; const tz = name.match(TAM_FIN); if (tz && name.replace(TAM_FIN,'').trim()) { tam = tz[1]; name = name.replace(TAM_FIN,'').trim(); }
       const price = m[3] ? parseFloat(m[3].replace(/,/g,'')) : null;
       const listPrice = m[4] ? parseFloat(m[4].replace(/,/g,'')) : null;
       const map = resolve(name, dict);
@@ -237,11 +242,13 @@ function parseSegment(lines, dict){
         if (cur) cur.mods.push({qty, name, price, map}); else seg.orphans++;
         inMod = false; lastWasMod = true;
       } else {
-        cur = {qty, name, price, listPrice, map, mods:[], notes:[], promo: promo || (listPrice != null && listPrice > price), afterMod:lastWasMod};
+        cur = {qty, name, price, listPrice, map, mods:[], notes:[], promo: promo || (listPrice != null && listPrice > price), afterMod:lastWasMod, tam};
         seg.products.push(cur); lastWasMod = false;
       }
       continue;
     }
+    const tl = l.match(TAM);
+    if (tl && cur) { cur.tam = tl[1]; inMod = false; lastWasMod = true; if (lines[i+1] && MONEY_ONLY.test(lines[i+1])) i++; continue; }
     if (isHeader(l)) { inMod = /^(elige|desear?|selecciona|escoge|agrega|quieres)\b|\?$|:$/i.test(l) ? 'pregunta' : true; mode=''; continue; }
     if (inMod === 'pregunta' && cur && !MONEY_ONLY.test(l) && /[A-Za-zÁÉÍÓÚÑáéíóúñ]{3}/.test(l) && l.length < 60) {
       const pr = lines[i+1] && MONEY_ONLY.test(lines[i+1]) ? money(lines[i+1]) : null; if (pr != null) i++;
@@ -264,7 +271,7 @@ function overlap(X,Y){
   }
   return 0;
 }
-const richer = (a,b) => (b.mods.length + b.notes.length > a.mods.length + a.notes.length) ? b : a;
+const richer = (a,b) => { const r = (b.mods.length + b.notes.length > a.mods.length + a.notes.length) ? b : a; if (!r.tam) r.tam = a.tam || b.tam; return r; };
 function mergeProducts(A,B){
   const kab = overlap(A,B), kba = overlap(B,A);
   let first = A, second = B, k = kab;
@@ -343,7 +350,7 @@ function toItems(order){
       });
       items.push({n: m.excel, qty: p.qty, orilla, parts});
     } else {
-      items.push({n: m.excel, qty: p.qty, orilla});
+      items.push(p.tam === '40' ? {n: m.excel, qty: p.qty, orilla, tam: '40'} : {n: m.excel, qty: p.qty, orilla});
       otros.forEach(md => items.push({n: md.map.excel, qty: md.qty * p.qty}));
     }
   }

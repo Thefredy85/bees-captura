@@ -25,6 +25,9 @@ const PCOLOR = {Uber:'var(--uber)', DiDi:'var(--didi)', Rappi:'var(--rappi)', 'R
 const EN_EXCEL = p => p !== 'Reservándonos';
 
 let dict = Object.assign({}, DEFAULT_DICT, store.get('bees.dict', {}));
+/* Líneas de las apps que NO son productos y alguien asignó a mano (p. ej. «Completado» → Tropical Bee Spicy): se olvidan */
+const NO_PRODUCTO = /^(completado|ajuste de la cuota|cuota de servicio|oferta especial|subtotal|total|calificar|calificacion|obtener ayuda|cliente recurrente|\d+ pedidos|\d+$|(35|40) ?cm$|elige tu)/;
+(() => { let n = 0; for (const k of Object.keys(dict)) if (!(k in DEFAULT_DICT) && NO_PRODUCTO.test(k)) { delete dict[k]; n++; } if (n) { try { saveDict(); } catch(e) {} } })();
 let texto = '', plataformaHint = '', metodo = '';
 let order = null, resumen = null, estadoConf = 'vacio';   // vacio | pedido | resumen | registrado
 let detectado = false, autoOn = false;   // pedido detectado en pantalla (pregunta) · registro automático (solo admin, 30 min)
@@ -238,7 +241,7 @@ function pantallaPedido(){
     return `<li class="item ${combo?'combo':''} ${nuevo?'nuevo':''} ${nocuenta?'nocuenta':''}"${idN}>
       <div class="q hex num" aria-label="Cantidad">${p.qty}</div>
       <div style="min-width:0">
-        <div class="nom">${esc(nombre)}${combo ? ' <span class="chip" style="background:var(--honey-ink);color:var(--honey);font-size:11px;padding:2px 8px">COMBO</span>' : ''}</div>
+        <div class="nom">${esc(nombre)}${p.tam ? ` <span class="chip ${p.tam==='40'?'warn':''}" style="font-size:11px;padding:2px 8px">${p.tam} cm</span>` : ''}${combo ? ' <span class="chip" style="background:var(--honey-ink);color:var(--honey);font-size:11px;padding:2px 8px">COMBO</span>' : ''}</div>
         ${detalle ? `<div class="sub">${esc(detalle)}</div>` : ''}
         ${leido && verInfo ? `<div class="sub">${esc(leido)}</div>` : ''}
         ${p.notes.map(n => `<div class="nota">Comentario: ${esc(n)}</div>`).join('')}
@@ -431,7 +434,7 @@ function pintarRegistro(){
     return `<li class="fila ${nueva?'nueva':''}" style="--c:${PCOLOR[o.platform]||'var(--muted)'}"><button type="button" data-o="${esc(o.id)}" aria-expanded="${abierta===o.id}">
       <span class="hr num">${esc(o.time || '—')}</span>
       <span><span class="pl">${esc(o.platform)}</span><span class="id" style="display:block">#${esc(o.number)}${o.client ? ' · ' + esc(o.client) : ''}</span>${o.tarde ? `<span class="tarde" style="display:block">Registrado después${o.por ? ' · ' + esc(o.por) : ''}</span>` : ''}${o.corregido ? `<span class="tarde" style="display:block">Corregido por ${esc(o.corregido)}</span>` : ''}</span>
-      <span class="prods">${(o.lines||[]).map(l => (l.qty>1?l.qty+' ':'') + esc(l.excel)).join(' · ') || '<span class="hint">Sin productos</span>'}</span>
+      <span class="prods">${(o.lines||[]).map(l => (l.qty>1?l.qty+' ':'') + esc(l.excel)).join(' · ') || '<span class="hint">Sin productos</span>'}${grandes(o)}</span>
       <span class="tt num">${dinero(o.total)}${o.totalNote ? `<small>${esc(o.totalNote)}</small>` : ''}</span>
     </button>${det}</li>`;
   }).join('') + '</ul>' : `<div class="empty">Sin pedidos ${filtro ? 'de ' + esc(filtro) + ' ' : ''}${viewDay === hoy() ? 'todavía hoy' : 'ese día'}. Aquí aparece lo que registre cualquiera de las tabletas.</div>`;
@@ -707,6 +710,11 @@ window.alSalir = () => { if (!esAdmin()) return; cerrarModal(); $('ajustes').hid
 window.alVolver = () => { if (esAdmin() && !$('candado').hidden) pedirDesbloqueo(); };
 document.addEventListener('visibilitychange', () => { if (document.hidden) window.alSalir(); else window.alVolver(); });
 
+/* Pizzas de 40 cm de un pedido (las demás son de 35) */
+const grandes = o => { const g = (o.items||[]).filter(i => i.tam === '40'); return g.length ? ` <b class="g40">· 40 cm: ${g.map(i => (i.qty>1?i.qty+' ':'') + esc(i.n)).join(', ')}</b>` : ''; };
+const PIZZAS = new Set((CATALOG.find(c => c.cat === 'Pizzas') || {names:[]}).names);
+const esPizza = n => PIZZAS.has(n) || PIZZAS.has(String(n).replace(/\s*\([^)]*\)\s*$/, ''));
+
 /* ---------- Corregir un pedido (con clave de supervisor) ---------- */
 function abrirCorregir(id){
   const o = getLog().find(x => x.id === id); if (!o) return;
@@ -726,16 +734,17 @@ function editorPedido(o, s){
         <label><span class="eyebrow">Total</span><input id="crTot" type="number" inputmode="decimal" step="0.01"></label>
         <label style="grid-column:1/-1"><span class="eyebrow">Cliente</span><input id="crCli" autocomplete="off"></label>
       </div>
-      <ul class="cr-items">${items.map((i,k) => `<li><span>${esc(i.n)}</span><span class="cr-q"><button type="button" data-m="${k}" aria-label="Uno menos de ${esc(i.n)}">−</button><b class="num">${i.qty}</b><button type="button" data-p="${k}" aria-label="Uno más de ${esc(i.n)}">+</button><button type="button" data-x="${k}" aria-label="Quitar ${esc(i.n)}">✕</button></span></li>`).join('') || '<li><span class="hint">Sin productos</span></li>'}</ul>
+      <ul class="cr-items">${items.map((i,k) => `<li><span>${esc(i.n)}</span><span class="cr-q">${esPizza(i.n) ? `<button type="button" class="cr-tam${i.tam==='40'?' on':''}" data-t="${k}" aria-label="Tamaño de ${esc(i.n)}: ${i.tam==='40'?'40':'35'} cm, toca para cambiar">${i.tam==='40'?'40':'35'}</button>` : ''}<button type="button" data-m="${k}" aria-label="Uno menos de ${esc(i.n)}">−</button><b class="num">${i.qty}</b><button type="button" data-p="${k}" aria-label="Uno más de ${esc(i.n)}">+</button><button type="button" data-x="${k}" aria-label="Quitar ${esc(i.n)}">✕</button></span></li>`).join('') || '<li><span class="hint">Sin productos</span></li>'}</ul>
       <select id="crAdd" aria-label="Agregar producto"><option value="">+ Agregar producto…</option>${opciones}</select>
       ${msg ? `<div class="banner bad">${esc(msg)}</div>` : ''}
-      <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap"><button class="btn ghost" type="button" id="crNo">Cancelar</button><button class="btn primary" type="button" id="crSi">Guardar corrección</button></div>`;
+      <div class="cr-acc"><button class="btn ghost" type="button" id="crNo">Cancelar</button><button class="btn primary" type="button" id="crSi">Guardar corrección</button></div>`;
     $('crNum').value = v.num; $('crTot').value = v.tot; $('crCli').value = v.cli;
     const cambia = f => () => { leerCampos(); f(); pintar(); };
     caja.querySelectorAll('[data-m]').forEach(b => b.onclick = cambia(() => { const i = items[b.dataset.m]; if (i.qty > 1) i.qty--; }));
     caja.querySelectorAll('[data-p]').forEach(b => b.onclick = cambia(() => { items[b.dataset.p].qty++; }));
     caja.querySelectorAll('[data-x]').forEach(b => b.onclick = cambia(() => { items.splice(Number(b.dataset.x), 1); }));
-    $('crAdd').onchange = e => { const n = e.target.value; if (!n) return; leerCampos(); const ya = items.find(i => i.n === n && !i.parts); if (ya) ya.qty++; else items.push({n, qty:1}); pintar(); };
+    caja.querySelectorAll('[data-t]').forEach(b => b.onclick = cambia(() => { const i = items[b.dataset.t]; if (i.tam === '40') delete i.tam; else i.tam = '40'; }));
+    $('crAdd').onchange = e => { const n = e.target.value; if (!n) return; leerCampos(); const ya = items.find(i => i.n === n && !i.parts && !i.tam); if (ya) ya.qty++; else items.push({n, qty:1}); pintar(); };
     $('crNo').onclick = cerrarModal;
     $('crSi').onclick = async () => {
       leerCampos();
