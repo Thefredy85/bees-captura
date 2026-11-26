@@ -84,6 +84,8 @@ public class CapturaService extends AccessibilityService {
             // DiDi necesita elegir la tarjeta naranja: sigue siendo solo con el botón
             if (plat.isEmpty() || "DiDi".equals(plat)) return;
             if (!Latido.capturaActiva(this)) return;
+            // Si hay una lectura completa esperando, cualquier movimiento la vuelve a posponer
+            if (lecturaPendiente != null) { h.removeCallbacks(lecturaPendiente); h.postDelayed(lecturaPendiente, 1800); }
             long ahora = System.currentTimeMillis();
             if (ahora - ultimaDeteccion < 1500) return;
             ultimaDeteccion = ahora;
@@ -93,6 +95,17 @@ public class CapturaService extends AccessibilityService {
             recolectar(raiz, lineas);
             String texto = String.join("\n", lineas);
             if (!LINEA_PRODUCTO.matcher(texto).find()) return;
+            String codigo = codigoDe(texto);
+            if (codigo != null && registrados.contains(codigo)) return;   // ya está en el registro de hoy
+            if (!TOTAL.matcher(texto).find()) {
+                // Pedido nuevo que no se ve completo (el total queda abajo): se lee completo en silencio
+                if (codigo == null || (codigo.equals(ultimoLeido) && ahora - ultimoLeidoT < 300000)) return;
+                final String cod = codigo;
+                if (lecturaPendiente != null) h.removeCallbacks(lecturaPendiente);
+                lecturaPendiente = () -> { lecturaPendiente = null; if (!ocupado) { ultimoLeido = cod; ultimoLeidoT = System.currentTimeMillis(); capturaSilenciosa(); } };
+                h.postDelayed(lecturaPendiente, 1800);
+                return;
+            }
             String firma = Integer.toHexString(texto.hashCode());
             if (firma.equals(ultimaFirmaDeteccion) && ahora - ultimaFirmaT < 120000) return;
             ultimaFirmaDeteccion = firma;
@@ -101,13 +114,114 @@ public class CapturaService extends AccessibilityService {
         } catch (Exception ignored) { }
     }
 
-    private long ultimaDeteccion = 0, ultimaFirmaT = 0;
-    private String ultimaFirmaDeteccion = "";
+    private long ultimaDeteccion = 0, ultimaFirmaT = 0, ultimoLeidoT = 0;
+    private String ultimaFirmaDeteccion = "", ultimoLeido = "";
+    private Runnable lecturaPendiente = null;
+    private boolean silencioso = false, usarGesto = false;
+    /** Números de pedido ya registrados hoy (los manda la pantalla de Bee's). */
+    static final java.util.Set<String> registrados = java.util.Collections.synchronizedSet(new java.util.HashSet<>());
+    private static final java.util.regex.Pattern TOTAL = java.util.regex.Pattern.compile("(?im)^\\s*total\\b");
+    private static final java.util.regex.Pattern COD_UBER = java.util.regex.Pattern.compile("•\\s*([A-Z0-9]{4,8})\\b");
+    private static final java.util.regex.Pattern COD_NUM = java.util.regex.Pattern.compile("#\\s?(\\d{4,12})\\b");
+
+    /** Número del pedido en pantalla: «Nombre • 08480» (Uber) o «#2487823707» (Rappi y otras). */
+    static String codigoDe(String texto) {
+        java.util.regex.Matcher m = COD_UBER.matcher(texto);
+        if (m.find()) return m.group(1);
+        m = COD_NUM.matcher(texto);
+        return m.find() ? m.group(1) : null;
+    }
+
+    /** Lee el pedido completo (bajando y regresando) sin abrir Bee's ni mostrar avisos. */
+    private void capturaSilenciosa() {
+        AccessibilityNodeInfo raiz = getRootInActiveWindow();
+        if (raiz == null || ocupado) return;
+        paquete = String.valueOf(raiz.getPackageName());
+        String plat = plataformaDe(paquete);
+        if (plat.isEmpty() || "DiDi".equals(plat) || Latido.esAdmin(this) || !Latido.capturaActiva(this)) return;
+        ocupado = true;
+        plataforma = plat;
+        segmentos.clear();
+        bajadas = 0;
+        usarGesto = false;
+        tarjetaDidi = null;
+        silencioso = true;
+        leerPorTexto(raiz, 0);
+    }
+
+    /** Desliza con un dedo simulado sobre la lista de productos (para apps cuya lista no acepta «bajar»). */
+    private boolean deslizar(AccessibilityNodeInfo raiz, boolean haciaAbajo) {
+        if (android.os.Build.VERSION.SDK_INT < 24) return false;
+        Rect pantalla = new Rect();
+        raiz.getBoundsInScreen(pantalla);
+        if (pantalla.height() < 200) return false;
+        Rect prod = boundsDeProducto(raiz);
+        int x = prod != null ? prod.centerX() : pantalla.left + pantalla.width() / 3;
+        int yAbajo = pantalla.top + (int) (pantalla.height() * 0.78f), yArriba = pantalla.top + (int) (pantalla.height() * 0.32f);
+        android.graphics.Path p = new android.graphics.Path();
+        if (haciaAbajo) { p.moveTo(x, yAbajo); p.lineTo(x, yArriba); } else { p.moveTo(x, yArriba); p.lineTo(x, yAbajo); }
+        android.accessibilityservice.GestureDescription g = new android.accessibilityservice.GestureDescription.Builder()
+                .addStroke(new android.accessibilityservice.GestureDescription.StrokeDescription(p, 0, 380)).build();
+        return dispatchGesture(g, null, null);
+    }
+
+    /** Dónde está el primer producto en pantalla (para deslizar sobre la lista correcta). */
+    private Rect boundsDeProducto(AccessibilityNodeInfo raiz) {
+        ArrayDeque<AccessibilityNodeInfo> cola = new ArrayDeque<>();
+        cola.add(raiz);
+        while (!cola.isEmpty()) {
+            AccessibilityNodeInfo n = cola.poll();
+            if (n == null) continue;
+            CharSequence t = n.getText();
+            if (t != null && LINEA_PRODUCTO.matcher(t).find()) { Rect r = new Rect(); n.getBoundsInScreen(r); if (r.width() > 0) return r; }
+            for (int i = 0; i < n.getChildCount(); i++) cola.add(n.getChild(i));
+        }
+        return null;
+    }
+
+    /** Cuando un pedido de Uber se lee sin total, manda a la base cómo está armada la pantalla (para arreglar la lectura). */
+    private void enviarDiagnostico(String texto) {
+        if (!"Uber".equals(plataforma)) return;
+        try {
+            AccessibilityNodeInfo raiz = getRootInActiveWindow();
+            org.json.JSONArray listas = new org.json.JSONArray();
+            if (raiz != null) {
+                ArrayDeque<AccessibilityNodeInfo> cola = new ArrayDeque<>();
+                cola.add(raiz);
+                while (!cola.isEmpty() && listas.length() < 15) {
+                    AccessibilityNodeInfo n = cola.poll();
+                    if (n == null) continue;
+                    if (n.isScrollable()) {
+                        Rect r = new Rect(); n.getBoundsInScreen(r);
+                        List<String> l = new ArrayList<>(); recolectar(n, l);
+                        listas.put(new org.json.JSONObject().put("clase", String.valueOf(n.getClassName())).put("id", String.valueOf(n.getViewIdResourceName()))
+                                .put("caja", r.flattenToString()).put("lineas", l.size()).put("hijos", n.getChildCount()));
+                    }
+                    for (int i = 0; i < n.getChildCount(); i++) cola.add(n.getChild(i));
+                }
+            }
+            final org.json.JSONObject d = new org.json.JSONObject().put("plat", plataforma).put("paquete", paquete).put("bajadas", bajadas)
+                    .put("gesto", usarGesto).put("silencioso", silencioso).put("pantallas", segmentos.size()).put("listas", listas)
+                    .put("final", texto.length() > 600 ? texto.substring(texto.length() - 600) : texto);
+            Latido.diagnostico(this, d);
+        } catch (Exception ignored) { }
+    }
 
     /** Si la pantalla de Bee's está abierta, la pregunta ahí; si no, manda una notificación. */
     private void avisarDetectado(String texto, String plat) {
         MainActivity m = MainActivity.activa;
         if (m != null) { m.pedidoDetectado(texto, plat); return; }
+        if (Latido.autoActivo(this)) {
+            Intent a = new Intent(this, MainActivity.class);
+            a.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_NO_ANIMATION);
+            a.putExtra("texto", texto);
+            a.putExtra("plataforma", plat);
+            a.putExtra("metodo", "detectado");
+            a.putExtra("paquete", paquete);
+            a.putExtra("detectado", true);
+            startActivity(a);
+            return;
+        }
         android.app.NotificationManager nm = (android.app.NotificationManager) getSystemService(NOTIFICATION_SERVICE);
         if (android.os.Build.VERSION.SDK_INT >= 26)
             nm.createNotificationChannel(new android.app.NotificationChannel("pedidos", "Pedidos nuevos", android.app.NotificationManager.IMPORTANCE_HIGH));
@@ -259,6 +373,8 @@ public class CapturaService extends AccessibilityService {
         Latido.recordarPlataforma(this, plataforma);
         segmentos.clear();
         bajadas = 0;
+        usarGesto = false;
+        silencioso = false;
         tarjetaDidi = null;
         estadoBurbuja("Leyendo…");
         if ("DiDi".equals(plataforma)) elegirTarjetaDidi(raiz, () -> {
@@ -404,9 +520,18 @@ public class CapturaService extends AccessibilityService {
         boolean repetida = !segmentos.isEmpty() && segmentos.get(segmentos.size() - 1).equals(texto);
         if (!repetida) segmentos.add(texto);
 
-        AccessibilityNodeInfo lista = buscarLista(raiz);
-        if (repetida || paso >= MAX_PANTALLAS || lista == null
-                || !lista.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)) {
+        boolean bajo = false;
+        if (repetida && !usarGesto && paso <= 1 && android.os.Build.VERSION.SDK_INT >= 24) {
+            // La lista dijo que sí bajó pero no se movió (pasa en Uber): se intenta deslizando
+            if (bajadas > 0) bajadas--;
+            usarGesto = true;
+            bajo = deslizar(raiz, true);
+        } else if (!repetida && paso < MAX_PANTALLAS) {
+            AccessibilityNodeInfo lista = usarGesto ? null : buscarLista(raiz);
+            if (lista != null && lista.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)) bajo = true;
+            else if (android.os.Build.VERSION.SDK_INT >= 24 && deslizar(raiz, true)) { usarGesto = true; bajo = true; }
+        }
+        if (!bajo) {
             terminarTexto();
             return;
         }
@@ -419,6 +544,15 @@ public class CapturaService extends AccessibilityService {
 
     private void terminarTexto() {
         final String texto = String.join("\n---\n", segmentos);
+        if (!TOTAL.matcher(texto).find()) enviarDiagnostico(texto);
+        if (silencioso) {
+            regresarArriba(() -> {
+                silencioso = false;
+                if (LINEA_PRODUCTO.matcher(texto).find()) avisarDetectado(texto, plataforma);
+                fin();
+            });
+            return;
+        }
         regresarArriba(() -> {
             if (LINEA_PRODUCTO.matcher(texto).find()) {
                 abrirConfirmacion(texto, plataforma, "texto");
@@ -432,6 +566,14 @@ public class CapturaService extends AccessibilityService {
     /** Regresa la lista a como estaba antes de capturar. */
     private void regresarArriba(Runnable despues) {
         if (bajadas <= 0) { despues.run(); return; }
+        if (usarGesto) {
+            AccessibilityNodeInfo r = getRootInActiveWindow();
+            if (r == null || android.os.Build.VERSION.SDK_INT < 24) { bajadas = 0; despues.run(); return; }
+            deslizar(r, false);
+            bajadas--;
+            h.postDelayed(() -> regresarArriba(despues), 450);
+            return;
+        }
         AccessibilityNodeInfo r = getRootInActiveWindow();
         AccessibilityNodeInfo lista = r == null ? null : buscarLista(r);
         if (lista == null) { bajadas = 0; despues.run(); return; }

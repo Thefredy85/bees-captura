@@ -153,8 +153,13 @@ public class MainActivity extends Activity {
         if (texto == null) return;
         String plat = i.getStringExtra("plataforma");
         String metodo = i.getStringExtra("metodo");
+        boolean detectado = i.getBooleanExtra("detectado", false);
         i.removeExtra("texto");
-        String js = "window.cargarCaptura && cargarCaptura(" + JSONObject.quote(texto) + ","
+        i.removeExtra("detectado");
+        String js = detectado
+                // Abierta por el registro automático: registra (si la lectura es limpia) y regresa sola a la app de pedidos
+                ? "window.pedidoDetectado && pedidoDetectado(" + JSONObject.quote(texto) + "," + JSONObject.quote(plat == null ? "" : plat) + ",true)"
+                : "window.cargarCaptura && cargarCaptura(" + JSONObject.quote(texto) + ","
                 + JSONObject.quote(plat == null ? "" : plat) + ","
                 + JSONObject.quote(metodo == null ? "" : metodo) + ")";
         if (cargada) web.evaluateJavascript(js, null); else pendiente = js;
@@ -211,6 +216,23 @@ public class MainActivity extends Activity {
                     .putString("rol", "admin".equals(modo) ? "celular" : "tableta").apply();
             runOnUiThread(() -> { if (CapturaService.instancia != null) CapturaService.instancia.aplicarCaptura(Latido.capturaGlobal(MainActivity.this)); });
             Latido.ahora(MainActivity.this);
+        }
+
+        /** Números de pedido ya registrados hoy: la detección no vuelve a leerlos. */
+        @JavascriptInterface
+        public void ponerRegistrados(String json) {
+            try {
+                org.json.JSONArray a = new org.json.JSONArray(json);
+                java.util.Set<String> s = new java.util.HashSet<>();
+                for (int k = 0; k < a.length(); k++) s.add(a.optString(k));
+                synchronized (CapturaService.registrados) { CapturaService.registrados.clear(); CapturaService.registrados.addAll(s); }
+            } catch (Exception ignored) { }
+        }
+
+        /** Hasta cuándo está prendido el registro automático (milisegundos; 0 = apagado). */
+        @JavascriptInterface
+        public void ponerAuto(double hasta) {
+            AvisosService.prefs(MainActivity.this).edit().putLong("auto_hasta", (long) hasta).apply();
         }
 
         /** De qué plataforma es esta tableta (para los avisos de conexión). */

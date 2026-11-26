@@ -41,6 +41,39 @@ final class Latido {
     /** El interruptor de captura que decide el supervisor (sin importar el modo de este equipo). */
     static boolean capturaGlobal(Context c) { return prefs(c).getBoolean("captura", true); }
 
+    /** El registro automático está prendido (lo manda la pantalla de Bee's con su hora de apagado). */
+    static boolean autoActivo(Context c) { return prefs(c).getLong("auto_hasta", 0) > System.currentTimeMillis(); }
+
+    /** Diagnóstico de lectura (para arreglar apps cuya pantalla no se deja leer completa). */
+    static void diagnostico(Context c, JSONObject datos) {
+        final String clave = prefs(c).getString("clave", "");
+        if (clave.isEmpty()) return;
+        final Context app = c.getApplicationContext();
+        new Thread(() -> {
+            HttpURLConnection con = null;
+            try {
+                JSONObject o = new JSONObject();
+                String id = Settings.Secure.getString(app.getContentResolver(), Settings.Secure.ANDROID_ID);
+                o.put("tableta", id == null ? Build.MODEL : id);
+                o.put("version", BuildConfigInfo.VERSION);
+                o.put("datos", datos);
+                con = (HttpURLConnection) new URL("https://iwjhmdeffwhqxmcivfso.supabase.co/rest/v1/delivery_diagnosticos").openConnection();
+                con.setRequestMethod("POST");
+                con.setConnectTimeout(15000);
+                con.setReadTimeout(15000);
+                con.setDoOutput(true);
+                con.setRequestProperty("apikey", AvisosService.SB_KEY);
+                con.setRequestProperty("Authorization", "Bearer " + AvisosService.SB_KEY);
+                con.setRequestProperty("x-bees-clave", clave);
+                con.setRequestProperty("Content-Type", "application/json");
+                con.setRequestProperty("Prefer", "return=minimal");
+                try (OutputStream os = con.getOutputStream()) { os.write(o.toString().getBytes("UTF-8")); }
+                con.getResponseCode();
+            } catch (Exception ignored) {
+            } finally { if (con != null) con.disconnect(); }
+        }).start();
+    }
+
     /** Este equipo se eligió como Administrador: no lee pedidos ni reenvía avisos. */
     static boolean esAdmin(Context c) { return "admin".equals(prefs(c).getString("modo", "")); }
 

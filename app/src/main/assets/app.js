@@ -30,7 +30,7 @@ const NO_PRODUCTO = /^(completado|ajuste de la cuota|cuota de servicio|oferta es
 (() => { let n = 0; for (const k of Object.keys(dict)) if (!(k in DEFAULT_DICT) && NO_PRODUCTO.test(k)) { delete dict[k]; n++; } if (n) { try { saveDict(); } catch(e) {} } })();
 let texto = '', plataformaHint = '', metodo = '';
 let order = null, resumen = null, estadoConf = 'vacio';   // vacio | pedido | resumen | registrado
-let detectado = false, autoOn = false;   // pedido detectado en pantalla (pregunta) · registro automático (solo admin, 30 min)
+let detectado = false, autoOn = false, autoHasta = 0, registrandoAuto = false;   // pedido detectado en pantalla (pregunta) · registro automático (solo admin, 30 min)
 let ultimoMsg = '', viewDay = hoy(), filtro = '', abierta = null, porQuitar = null, conTodos = false;
 const vistos = new Set();
 
@@ -60,7 +60,7 @@ function filaAEntrada(r){
 function entradaAFila(e){
   const f = {id:e.id, dia:e.dia, plat:PKEY[e.platform], code:e.number, cust:e.client||null, items:e.items, lineas:e.lines,
     total:e.total, total_nota:e.totalNote||null, suma:e.sum, nota:(e.notes||[]).join(' · ')||null,
-    tableta:e.platform||null, texto:e.texto||null, created_at:e.created};
+    tableta:e.platform||null, texto:e.texto||null, created_at:e.created, origen:e.origen||null};
   if (e.tarde) { f.tarde = true; f.por = e.por || null; }
   if (!f.created_at) delete f.created_at;
   return f;
@@ -90,7 +90,8 @@ async function refrescar(day = viewDay){
     const rf = await sb('GET', 'delivery_ajustes', '?select=valor&clave=eq.fotos_delivery');
     if (rf.ok) { const f = await rf.json(); if (f[0]) fotosOn = f[0].valor !== false; }
     const ru = await sb('GET', 'delivery_ajustes', '?select=valor&clave=eq.auto_registro');
-    if (ru.ok) { const u = await ru.json(); if (u[0]) { const v = u[0].valor || {}; autoOn = !!v.activa && Date.parse(v.hasta) > Date.now(); } }
+    if (ru.ok) { const u = await ru.json(); if (u[0]) { const v = u[0].valor || {}; autoOn = !!v.activa && Date.parse(v.hasta) > Date.now(); autoHasta = autoOn ? Date.parse(v.hasta) : 0; avisarAuto(); } }
+    if (day === hoy()) avisarRegistrados();
     syncInfo = {ok:true, txt:'Actualizado ' + hhmm(Date.now())};
   } catch(e) { syncInfo = {ok:false, txt:'Sin conexión: se guarda aquí y se sube después'}; }
   pintarSync();
@@ -309,6 +310,8 @@ function enlazarPedido(){
 }
 let ultimoId = null;
 function registrar(){
+  const origen = registrandoAuto ? 'auto' : (detectado ? 'detectado' : 'boton');
+  registrandoAuto = false;
   detectado = false;
   const xl = excelLines(order), day = dayOf(), dup = buscarDup(day);
   if (dup.igual) { aviso('Este pedido ya está en el registro.', true); return; }
@@ -319,12 +322,13 @@ function registrar(){
   const e = {id, dia:day, platform:order.platform, number:order.number, client:order.client||'', created:now.toISOString(),
     time: day === hoy() ? hhmm(now) : '', items:xl.items, lines:xl.lines.map(l => ({excel:l.excel, qty:l.qty})),
     total:order.total, totalNote:order.totalNote, sum:order.sum,
-    notes:[...order.orderNotes, ...order.products.flatMap(p => p.notes), ...order.alerts], texto: texto.slice(0, 8000)};
+    notes:[...order.orderNotes, ...order.products.flatMap(p => p.notes), ...order.alerts], texto: texto.slice(0, 8000), origen};
   if (modoReg) { e.tarde = true; e.por = modoReg.por; e.notes.push('Registrado después por ' + modoReg.por); }
   if (!EN_EXCEL(order.platform)) e.lines = xl.items.map(i => ({excel:i.n, qty:i.qty}));
   if (SYNC()) { setCola([...cola(), e]); subirCola(); }
   else { const log = store.get(logKey(day), []); log.push(e); store.set(logKey(day), log); }
   ultimoId = id;
+  avisarRegistrados();
   if (modoReg) tocarModo();
   ultimoMsg = `${order.platform} #${order.number} registrado` + (modoReg ? ' en ' + nombreDia(day) : '') + (EN_EXCEL(order.platform) ? ` · ${pl(xl.lines.reduce((a,l)=>a+l.qty,0),'marca')} en el Excel` : '');
   if (APP && window.Android.registrado) { try { window.Android.registrado(ultimoMsg); } catch(err) {} }
@@ -884,7 +888,7 @@ async function pintarAjustesSup(){
   };
   $('swAuto').onclick = async () => {
     const v = !autoOn, ss = supVigente(); if (!ss) { $('ajustes').hidden = true; return; }
-    try { const r = await rpc('delivery_auto', {pin:ss.pin, d:{activa:v, minutos:30}}); autoOn = !!r.activa && Date.parse(r.hasta) > Date.now(); aviso(autoOn ? 'Registro automático activado por 30 min' : 'Registro automático apagado'); }
+    try { const r = await rpc('delivery_auto', {pin:ss.pin, d:{activa:v, minutos:30}}); autoOn = !!r.activa && Date.parse(r.hasta) > Date.now(); autoHasta = autoOn ? Date.parse(r.hasta) : 0; avisarAuto(); aviso(autoOn ? 'Registro automático activado por 30 min' : 'Registro automático apagado'); }
     catch(e) { aviso(e.message, true); }
     pintarAjustesSup();
   };
@@ -950,17 +954,35 @@ window.cargarCaptura = async (t, plataforma, met) => {
 };
 /* Pedido detectado en pantalla (sin tocar nada): si la lectura está completa y es nuevo, lo pregunta.
    Con el registro automático activo y limpio, lo registra y avisa. Nunca pisa un pedido que se está revisando. */
-window.pedidoDetectado = async (t, plataforma) => {
-  if (!SYNC() || (estadoConf === 'pedido' && order)) return;
+/* Números de pedido ya registrados hoy → la tableta no los vuelve a leer al abrirlos */
+function avisarRegistrados(){
+  if (!APP || !window.Android.ponerRegistrados) return;
+  try { window.Android.ponerRegistrados(JSON.stringify([...new Set(getLog(hoy()).map(o => String(o.number || '')).filter(Boolean))])); } catch(e) {}
+}
+function avisarAuto(){ if (APP && window.Android.ponerAuto) { try { window.Android.ponerAuto(autoOn ? autoHasta : 0); } catch(e) {} } }
+window.pedidoDetectado = async (t, plataforma, lanzada) => {
+  // «lanzada»: Bee's se abrió solo para registrar en automático; si no registra, regresa a la app de pedidos
+  const regresar = () => { if (lanzada && APP && window.Android.volver) { try { window.Android.volver(); } catch(e) {} } };
+  if (!SYNC() || (estadoConf === 'pedido' && order)) return regresar();
   await refrescar(dayOf());
+  // Si al final no se usa la lectura, la pantalla regresa exactamente a como estaba
+  const antes = {texto, order, resumen, estadoConf, plataformaHint, metodo, fechaOk, verInfo, ultimoId};
+  const descartar = () => { ({texto, order, resumen, estadoConf, plataformaHint, metodo, fechaOk, verInfo, ultimoId} = antes); regresar(); };
   texto = String(t || ''); plataformaHint = PLATS.includes(plataforma) ? plataforma : ''; metodo = 'detectado';
   order = null; resumen = null; fechaOk = false; verInfo = false; ultimoId = null; leer();
   const completo = order && order.platform && order.number && order.products.length && order.total != null
     && !order.numDudoso && !order.mixedNumbers && (!order.expected || order.readQty === order.expected);
-  if (!completo) return;                        // lectura incompleta: no molesta; queda el botón
-  if (buscarDup(dayOf()).igual) return;         // ya está en el registro
+  if (!completo) return descartar();            // lectura incompleta: no molesta; queda el botón
+  if (buscarDup(dayOf()).igual) return descartar();  // ya está en el registro
   const limpio = !excelLines(order).pending && !order.alerts.length && !buscarDup(dayOf()).otros.length && !modoReg;
-  if (autoOn && limpio) { await registrar(); aviso('Pedido #' + order.number + ' registrado automáticamente.'); return; }
+  if (autoOn && Date.now() < autoHasta && limpio) {
+    const n = order.number;
+    registrandoAuto = true; await registrar();
+    aviso('Pedido #' + n + ' registrado automáticamente.');
+    // Si Bee's estaba atrás (en otra app), no la trae al frente: se queda registrando en silencio
+    if (!lanzada && document.hidden) { clearTimeout(timerVolver); estadoConf = 'vacio'; }
+    return;
+  }
   detectado = true; ir('vConfirmar'); pintarConfirmar();
 };
 window.actualizarEstado = () => { pintarAjustes(); if (estadoConf === 'vacio') pintarConfirmar(); if (SYNC()) subirCola(); };
