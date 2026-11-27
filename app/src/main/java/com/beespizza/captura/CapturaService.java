@@ -84,6 +84,8 @@ public class CapturaService extends AccessibilityService {
             // DiDi necesita elegir la tarjeta naranja: sigue siendo solo con el botón
             if (plat.isEmpty() || "DiDi".equals(plat)) return;
             if (!Latido.capturaActiva(this)) return;
+            // Registro automático: cuando la pantalla se queda quieta 2 s, revisa el tablero de pedidos
+            if (Latido.autoActivo(this)) { h.removeCallbacks(revisionTablero); h.postDelayed(revisionTablero, 2000); }
             // Si hay una lectura completa esperando, cualquier movimiento la vuelve a posponer
             if (lecturaPendiente != null) { h.removeCallbacks(lecturaPendiente); h.postDelayed(lecturaPendiente, 1800); }
             long ahora = System.currentTimeMillis();
@@ -124,12 +126,254 @@ public class CapturaService extends AccessibilityService {
     private static final java.util.regex.Pattern COD_UBER = java.util.regex.Pattern.compile("•\\s*([A-Z0-9]{4,8})\\b");
     private static final java.util.regex.Pattern COD_NUM = java.util.regex.Pattern.compile("#\\s?(\\d{4,12})\\b");
 
-    /** Número del pedido en pantalla: «Nombre • 08480» (Uber) o «#2487823707» (Rappi y otras). */
+    private static final Pattern COD_ID = Pattern.compile("(?i)\\bID\\s*:?\\s*#?\\s?(\\d{4,12})\\b");
+
+    /** Número del pedido en pantalla: «Nombre • 08480» (Uber), «ID: 2487823707» o «#2487823707» (Rappi y otras). */
     static String codigoDe(String texto) {
         java.util.regex.Matcher m = COD_UBER.matcher(texto);
         if (m.find()) return m.group(1);
+        m = COD_ID.matcher(texto);
+        if (m.find()) return m.group(1);
         m = COD_NUM.matcher(texto);
         return m.find() ? m.group(1) : null;
+    }
+
+    // ---------- registro automático desde el tablero (Uber y Rappi) ----------
+    //
+    // Con el automático prendido, cuando en el tablero aparece un pedido ya aceptado que no está en el registro:
+    // toca SOLO el número del pedido, lee el detalle (bajando dentro del detalle), lo cierra con la X
+    // (o «atrás») y lo manda a Bee's para registrarse. Nunca toca Aceptar, Rechazar ni Listo.
+
+    private static final Pattern UBER_SOLO = Pattern.compile("^#?\\s?([0-9A-F]{5})$");
+    private static final Pattern DETALLE = Pattern.compile("(?i)(detalle de (la )?orden|total sugerido|detalles del pedido)");
+    private static final Pattern PENDIENTE = Pattern.compile("(?im)(para aceptar|aceptar pedido|^\\s*aceptar\\s*$|rechazar|nuevo pedido|pedido nuevo)");
+    private static final Pattern BOTON_ACEPTAR = Pattern.compile("(?i)^\\s*aceptar( pedido| orden)?\\s*$");
+    private static final Pattern PROHIBIDO = Pattern.compile("(?i)(aceptar|rechazar|orden lista|pedido listo|^\\s*listo\\s*$|cancelar|llamar)");
+    private static final Pattern CERRAR = Pattern.compile("(?i)^\\s*(x|✕|×|╳|cerrar|close|atr[aá]s|back|regresar|volver|navigate up|navegar hacia arriba|subir)\\s*$");
+
+    private final java.util.Set<String> conocidos = new java.util.HashSet<>();
+    private final java.util.Map<String, Integer> intentos = new java.util.HashMap<>();
+    private final java.util.Map<String, Long> esperarHasta = new java.util.HashMap<>();
+    private long baseAuto = -1;
+    private boolean deTablero = false;
+    private String codigoTablero = "";
+    private final Runnable revisionTablero = this::revisarTablero;
+
+    private static class Nodo { final AccessibilityNodeInfo n; final String s; final Rect r; Nodo(AccessibilityNodeInfo n, String s, Rect r) { this.n = n; this.s = s; this.r = r; } }
+
+    private void nodosConTexto(AccessibilityNodeInfo n, List<Nodo> out) {
+        if (n == null) return;
+        if (n.isVisibleToUser()) {
+            CharSequence t = n.getText();
+            if (t == null || t.length() == 0) t = n.getContentDescription();
+            if (t != null && t.toString().trim().length() > 0) { Rect r = new Rect(); n.getBoundsInScreen(r); out.add(new Nodo(n, t.toString().trim(), r)); }
+        }
+        for (int i = 0; i < n.getChildCount(); i++) nodosConTexto(n.getChild(i), out);
+    }
+
+    private static String codigoTarjeta(String s, String plat) {
+        java.util.regex.Matcher m = COD_ID.matcher(s);
+        if (m.find()) return m.group(1);
+        if ("Uber".equals(plat)) {
+            m = COD_UBER.matcher(s);
+            if (m.find()) return m.group(1);
+            m = UBER_SOLO.matcher(s.trim());
+            if (m.matches() && m.group(1).matches(".*\\d.*")) return m.group(1);
+        }
+        if ("Rappi".equals(plat)) { m = COD_NUM.matcher(s); if (m.find()) return m.group(1); }
+        return null;
+    }
+
+    /** La tarjeta del pedido: el primer contenedor tocable alrededor del número (si no es toda la pantalla). */
+    private AccessibilityNodeInfo tarjetaDe(AccessibilityNodeInfo n, Rect pantalla) {
+        AccessibilityNodeInfo p = n;
+        for (int i = 0; i < 7 && p != null; i++) {
+            if (p.isClickable()) {
+                Rect r = new Rect(); p.getBoundsInScreen(r);
+                return r.height() < pantalla.height() * 0.6f ? p : null;
+            }
+            p = p.getParent();
+        }
+        return null;
+    }
+
+    private static String textoDe(AccessibilityNodeInfo n) {
+        if (n == null) return "";
+        CharSequence t = n.getText();
+        if (t == null || t.length() == 0) t = n.getContentDescription();
+        return t == null ? "" : t.toString();
+    }
+
+    private void revisarTablero() {
+        try {
+            if (ocupado || !Latido.autoActivo(this) || Latido.esAdmin(this) || !Latido.capturaActiva(this)) return;
+            AccessibilityNodeInfo raiz = getRootInActiveWindow();
+            if (raiz == null) return;
+            String pkg = String.valueOf(raiz.getPackageName());
+            String plat = plataformaDe(pkg);
+            if (!"Uber".equals(plat) && !"Rappi".equals(plat)) return;
+            List<Nodo> todos = new ArrayList<>();
+            nodosConTexto(raiz, todos);
+            StringBuilder sb = new StringBuilder();
+            for (Nodo x : todos) sb.append(x.s).append('\n');
+            String todo = sb.toString();
+            // Solo en el tablero (no dentro de un pedido abierto)
+            if (DETALLE.matcher(todo).find() || TOTAL.matcher(todo).find() || LINEA_PRODUCTO.matcher(todo).find()) return;
+            Rect pantalla = new Rect();
+            raiz.getBoundsInScreen(pantalla);
+            Collections.sort(todos, (a, b) -> Integer.compare(a.r.top, b.r.top));
+            long hasta = Latido.prefs(this).getLong("auto_hasta", 0);
+            boolean primera = hasta != baseAuto;
+            java.util.Set<String> vistos = new java.util.HashSet<>();
+            Nodo elegido = null;
+            long ahora = System.currentTimeMillis();
+            for (Nodo x : todos) {
+                String cod = codigoTarjeta(x.s, plat);
+                if (cod == null || !vistos.add(cod)) continue;
+                AccessibilityNodeInfo tarjeta = tarjetaDe(x.n, pantalla);
+                List<String> l = new ArrayList<>();
+                if (tarjeta != null) recolectar(tarjeta, l);
+                boolean pendiente = PENDIENTE.matcher(String.join("\n", l)).find();
+                if (primera) { if (!pendiente) conocidos.add(cod); continue; }   // lo que ya estaba al prender el automático no se toca
+                if (pendiente || conocidos.contains(cod) || registrados.contains(cod)) continue;
+                Integer n = intentos.get(cod);
+                if (n != null && n >= 2) continue;
+                Long espera = esperarHasta.get(cod);
+                if (espera != null && ahora < espera) continue;
+                if (elegido == null) elegido = x;
+            }
+            if (primera) { baseAuto = hasta; return; }
+            if (elegido != null) abrirDesdeTablero(elegido, plat, pkg, pantalla);
+        } catch (Exception ignored) { }
+    }
+
+    private boolean tocar(int x, int y) {
+        if (Build.VERSION.SDK_INT < 24) return false;
+        android.graphics.Path p = new android.graphics.Path();
+        p.moveTo(x, y);
+        android.accessibilityservice.GestureDescription g = new android.accessibilityservice.GestureDescription.Builder()
+                .addStroke(new android.accessibilityservice.GestureDescription.StrokeDescription(p, 0, 60)).build();
+        return dispatchGesture(g, null, null);
+    }
+
+    private void abrirDesdeTablero(Nodo x, String plat, String pkg, Rect pantalla) {
+        String cod = codigoTarjeta(x.s, plat);
+        if (cod == null) return;
+        // El número no debe estar dentro de un botón de la app (Aceptar, Listo…)
+        AccessibilityNodeInfo tarjeta = tarjetaDe(x.n, pantalla);
+        if (tarjeta != null && (String.valueOf(tarjeta.getClassName()).contains("Button") || PROHIBIDO.matcher(textoDe(tarjeta)).matches())) { conocidos.add(cod); return; }
+        ocupado = true;
+        deTablero = true;
+        codigoTablero = cod;
+        plataforma = plat;
+        paquete = pkg;
+        intentos.put(cod, (intentos.containsKey(cod) ? intentos.get(cod) : 0) + 1);
+        estadoBurbuja("Leyendo…");
+        boolean ok = tocar(x.r.centerX(), x.r.centerY());
+        if (!ok && tarjeta != null) ok = tarjeta.performAction(AccessibilityNodeInfo.ACTION_CLICK);
+        if (!ok) { terminarTablero(); return; }
+        esperarDetalle(0);
+    }
+
+    /** ¿Sigue abierto el detalle del pedido? (nunca deslizar sobre el tablero: en Rappi deslizar hacia abajo acepta) */
+    private boolean sigueEnDetalle(AccessibilityNodeInfo raiz) {
+        if (raiz == null || !paquete.equals(String.valueOf(raiz.getPackageName()))) return false;
+        List<String> l = new ArrayList<>();
+        recolectar(raiz, l);
+        String t = String.join("\n", l);
+        return DETALLE.matcher(t).find() || TOTAL.matcher(t).find() || LINEA_PRODUCTO.matcher(t).find();
+    }
+
+    private void esperarDetalle(int intento) {
+        h.postDelayed(() -> {
+            AccessibilityNodeInfo r = getRootInActiveWindow();
+            if (r != null && !paquete.equals(String.valueOf(r.getPackageName()))) { terminarTablero(); return; }
+            if (r == null || !sigueEnDetalle(r)) {
+                if (intento < 10) esperarDetalle(intento + 1);
+                else { fallaTablero("no se abrió el pedido"); terminarTablero(); }
+                return;
+            }
+            // Uber: si todavía pide «Aceptar», se cierra sin tocar nada y se intenta cuando ya esté aceptado
+            if ("Uber".equals(plataforma) && hayBotonAceptar(r)) {
+                intentos.put(codigoTablero, Math.max(0, intentos.get(codigoTablero) - 1));
+                esperarHasta.put(codigoTablero, System.currentTimeMillis() + 30000);
+                cerrarDetalle(this::terminarTablero);
+                return;
+            }
+            segmentos.clear();
+            bajadas = 0;
+            usarGesto = false;
+            tarjetaDidi = null;
+            silencioso = true;
+            leerPorTexto(r, 0);
+        }, intento == 0 ? 1200 : 500);
+    }
+
+    private boolean hayBotonAceptar(AccessibilityNodeInfo raiz) {
+        List<Nodo> l = new ArrayList<>();
+        nodosConTexto(raiz, l);
+        for (Nodo x : l) if (BOTON_ACEPTAR.matcher(x.s).matches()) return true;
+        return false;
+    }
+
+    /** Cierra el detalle con la X de arriba (o «atrás» si no la encuentra) y revisa que ya se vea el tablero. */
+    private void cerrarDetalle(Runnable despues) {
+        AccessibilityNodeInfo r = getRootInActiveWindow();
+        boolean ok = false;
+        if (r != null && paquete.equals(String.valueOf(r.getPackageName()))) {
+            Rect pant = new Rect();
+            r.getBoundsInScreen(pant);
+            List<Nodo> l = new ArrayList<>();
+            nodosConTexto(r, l);
+            Nodo mejor = null;
+            for (Nodo x : l) {
+                if (!CERRAR.matcher(x.s).matches() || x.r.centerY() > pant.top + pant.height() * 0.3f) continue;
+                if (mejor == null || x.r.centerX() > mejor.r.centerX()) mejor = x;   // la de más a la derecha
+            }
+            if (mejor != null) {
+                AccessibilityNodeInfo p = mejor.n;
+                for (int i = 0; i < 4 && p != null && !p.isClickable(); i++) p = p.getParent();
+                ok = p != null && p.isClickable() && p.performAction(AccessibilityNodeInfo.ACTION_CLICK);
+                if (!ok) ok = tocar(mejor.r.centerX(), mejor.r.centerY());
+            }
+        }
+        if (!ok) performGlobalAction(GLOBAL_ACTION_BACK);
+        h.postDelayed(() -> {
+            AccessibilityNodeInfo r2 = getRootInActiveWindow();
+            if (r2 != null && sigueEnDetalle(r2)) {
+                performGlobalAction(GLOBAL_ACTION_BACK);
+                h.postDelayed(despues, 800);
+            } else despues.run();
+        }, 900);
+    }
+
+    private void terminarTablero() {
+        deTablero = false;
+        silencioso = false;
+        fin();
+    }
+
+    private void fallaTablero(String motivo) {
+        Integer n = intentos.get(codigoTablero);
+        if (n != null && n >= 2) { avisarFallo(this, plataforma, codigoTablero, motivo); conocidos.add(codigoTablero); }
+        else esperarHasta.put(codigoTablero, System.currentTimeMillis() + 20000);
+    }
+
+    private static final java.util.Map<String, Long> fallosAvisados = new java.util.HashMap<>();
+
+    /** Avisa por Telegram que un pedido no se pudo registrar solo (una vez por pedido cada 30 min). */
+    static void avisarFallo(android.content.Context c, String plat, String numero, String motivo) {
+        try {
+            String k = plat + "#" + numero;
+            long ahora = System.currentTimeMillis();
+            synchronized (fallosAvisados) {
+                Long antes = fallosAvisados.get(k);
+                if (antes != null && ahora - antes < 1800000) return;
+                fallosAvisados.put(k, ahora);
+            }
+            Latido.diagnostico(c, new org.json.JSONObject().put("aviso", "fallo").put("plat", plat)
+                    .put("numero", numero == null ? "" : numero).put("motivo", motivo == null ? "" : motivo));
+        } catch (Exception ignored) { }
     }
 
     /** Lee el pedido completo (bajando y regresando) sin abrir Bee's ni mostrar avisos. */
@@ -514,6 +758,8 @@ public class CapturaService extends AccessibilityService {
 
     /** Lee el texto de la pantalla, baja y vuelve a leer hasta que ya no cambie. */
     private void leerPorTexto(AccessibilityNodeInfo raiz, int paso) {
+        // Desde el tablero: si el detalle ya no está abierto, no se lee ni se desliza nada más
+        if (deTablero && !sigueEnDetalle(raiz)) { terminarTexto(); return; }
         List<String> lineas = new ArrayList<>();
         recolectar(raiz, lineas);
         String texto = String.join("\n", lineas);
@@ -545,6 +791,17 @@ public class CapturaService extends AccessibilityService {
     private void terminarTexto() {
         final String texto = String.join("\n---\n", segmentos);
         if (!TOTAL.matcher(texto).find()) enviarDiagnostico(texto);
+        if (deTablero) {
+            // Se regresa arriba, se cierra el detalle y ya con el tablero a la vista se manda a registrar
+            final String cod = codigoTablero, plat = plataforma;
+            final boolean completo = LINEA_PRODUCTO.matcher(texto).find() && TOTAL.matcher(texto).find();
+            regresarArriba(() -> cerrarDetalle(() -> {
+                if (completo) { conocidos.add(cod); avisarDetectado(texto, plat); }
+                else fallaTablero("no se pudo leer completo");
+                terminarTablero();
+            }));
+            return;
+        }
         if (silencioso) {
             regresarArriba(() -> {
                 silencioso = false;
@@ -568,7 +825,7 @@ public class CapturaService extends AccessibilityService {
         if (bajadas <= 0) { despues.run(); return; }
         if (usarGesto) {
             AccessibilityNodeInfo r = getRootInActiveWindow();
-            if (r == null || android.os.Build.VERSION.SDK_INT < 24) { bajadas = 0; despues.run(); return; }
+            if (r == null || android.os.Build.VERSION.SDK_INT < 24 || (deTablero && !sigueEnDetalle(r))) { bajadas = 0; despues.run(); return; }
             deslizar(r, false);
             bajadas--;
             h.postDelayed(() -> regresarArriba(despues), 450);

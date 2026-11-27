@@ -2,7 +2,7 @@ package com.beespizza.captura;
 
 /** Versión visible en la pantalla de la app (igual que versionName en app/build.gradle). */
 final class BuildConfigInfo {
-    static final String VERSION = "1.9";
-    static final int CODE = 20;   // igual que versionCode
+    static final String VERSION = "1.10";
+    static final int CODE = 21;   // igual que versionCode
     private BuildConfigInfo() { }
 }

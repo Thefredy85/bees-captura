@@ -149,6 +149,7 @@ function prepass(lines){
 const IGNORE = /^(datos de facturaci|tel\s*:|tengo un producto agotado|historial de [oó]rdenes|detalle de orden|bess?.?s pizza|aliados|rappitendero|estamos buscando|c[oó]digos rt|gestor de tiendas|turbo$|m[aá]s opciones|ir a detalles|pedido listo|aceptaci[oó]n autom|procesamiento restante|preparar pedido|llegar[aá] en|listo en \d+|listo$|ajustar pedido|un socio de la app|pedido cuando|cliente nuevo|no$|oferta especial|detalle de la orden|tiempo de la orden|direcci[oó]n de entrega|repartidor|uber_direct|tipo de pago|liquidaci[oó]n de pagos|los gastos de env|terminado$|aceptado$|despacho$|seguir en uber|vista$|listo para recoger|pedidos en vivo|nuevo$|aceptar$|procesando$|imprimir recibo|soporte didi|entregado$|costo de promoci|el usuario recibi|pedido recibido$|se inici[oó] la preparaci|el usuario repartidor|entrega iniciada|lleg[oó] a la ubicaci|completado$|calificar|obtener ayuda|calificaci[oó]n enviada|\d+\s+pedidos? (anteriores|entregados)|\d+\s*%$|cliente recurrente|ajuste de la cuota|cuota de servicio)/i;
 // Tamaño de la pizza: «35 cm» / «40 cm» (respuesta a «Elige tu tamaño») o pegado al nombre («Bee Classic 35cm»)
 const TAM = /^\(?(35|40)\s?cm\.?\)?$/i;
+const TAM_DESC = /tama[ñn]o[^.\n]*?\b(35|40)\s?cm/i;
 const TAM_FIN = /\s*\(?\b(35|40)\s?cm\.?\)?\s*$/i;
 const MONTHS = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
 const DATE2 = /\b(ene|feb|mar|abr|may|jun|jul|ago|sep|oct|nov|dic)[a-z]*\.?\s+(\d{1,2}),?\s+(\d{4})\b/i;
@@ -257,6 +258,8 @@ function parseSegment(lines, dict){
     if (mode==='orderNote') { seg.orderNotes.push(l); mode=''; continue; }
     if (mode==='comment') { if (cur && !cur.notes.includes(l)) cur.notes.push(l); continue; }
     if (MONEY_ONLY.test(l)) continue;
+    // Rappi trae el tamaño dentro de la descripción: «Tamaño grande de 40cm»
+    { const td = l.match(TAM_DESC); if (td && cur && !cur.tam) cur.tam = td[1]; }
     lastWasMod = false; // descripción: se ignora
   }
   return seg;

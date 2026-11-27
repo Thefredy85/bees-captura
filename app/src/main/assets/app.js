@@ -972,7 +972,9 @@ window.pedidoDetectado = async (t, plataforma, lanzada) => {
   order = null; resumen = null; fechaOk = false; verInfo = false; ultimoId = null; leer();
   const completo = order && order.platform && order.number && order.products.length && order.total != null
     && !order.numDudoso && !order.mixedNumbers && (!order.expected || order.readQty === order.expected);
-  if (!completo) return descartar();            // lectura incompleta: no molesta; queda el botón
+  // En automático, si no se puede registrar solo, avisa por Telegram para registrarlo a mano
+  const fallo = (motivo) => { if (autoOn && Date.now() < autoHasta && APP && window.Android.avisoFallo) { try { window.Android.avisoFallo(plataformaHint || (order && order.platform) || '', String((order && order.number) || ''), motivo); } catch(e) {} } };
+  if (!completo) { fallo('la lectura salió incompleta'); return descartar(); }  // no molesta; queda el botón
   if (buscarDup(dayOf()).igual) return descartar();  // ya está en el registro
   const limpio = !excelLines(order).pending && !order.alerts.length && !buscarDup(dayOf()).otros.length && !modoReg;
   if (autoOn && Date.now() < autoHasta && limpio) {
@@ -983,6 +985,7 @@ window.pedidoDetectado = async (t, plataforma, lanzada) => {
     if (!lanzada && document.hidden) { clearTimeout(timerVolver); estadoConf = 'vacio'; }
     return;
   }
+  fallo('necesita revisión (' + (order.alerts.length ? order.alerts.length + ' alerta(s)' : 'productos sin acomodar') + '); quedó en la pantalla de confirmar');
   detectado = true; ir('vConfirmar'); pintarConfirmar();
 };
 window.actualizarEstado = () => { pintarAjustes(); if (estadoConf === 'vacio') pintarConfirmar(); if (SYNC()) subirCola(); };

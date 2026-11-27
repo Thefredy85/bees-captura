@@ -235,6 +235,12 @@ public class MainActivity extends Activity {
             AvisosService.prefs(MainActivity.this).edit().putLong("auto_hasta", (long) hasta).apply();
         }
 
+        /** El registro automático no pudo registrar un pedido: avisa por Telegram para registrarlo a mano. */
+        @JavascriptInterface
+        public void avisoFallo(String plat, String numero, String motivo) {
+            CapturaService.avisarFallo(MainActivity.this, plat, numero, motivo);
+        }
+
         /** De qué plataforma es esta tableta (para los avisos de conexión). */
         @JavascriptInterface
         public void ponerPlataforma(String p) {
