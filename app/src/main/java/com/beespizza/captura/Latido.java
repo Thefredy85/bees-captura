@@ -83,6 +83,12 @@ final class Latido {
         if (!plat.equals(prefs(c).getString("plat_tableta", ""))) prefs(c).edit().putString("plat_tableta", plat).apply();
     }
 
+    /** El paquete de la app de pedidos de esta tableta (para el botón «Ir a …»). */
+    static void recordarPaquete(Context c, String pkg) {
+        if (pkg == null || pkg.isEmpty() || pkg.equals(c.getPackageName())) return;
+        if (!pkg.equals(prefs(c).getString("app_pkg", ""))) prefs(c).edit().putString("app_pkg", pkg).apply();
+    }
+
     static synchronized void iniciar(Context c) {
         app = c.getApplicationContext();
         if (corriendo) return;

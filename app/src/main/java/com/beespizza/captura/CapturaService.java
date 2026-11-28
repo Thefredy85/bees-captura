@@ -81,9 +81,12 @@ public class CapturaService extends AccessibilityService {
             int t = event.getEventType();
             if (t != AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED && t != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return;
             String plat = plataformaDe(String.valueOf(event.getPackageName()));
+            if (!plat.isEmpty()) Latido.recordarPaquete(this, String.valueOf(event.getPackageName()));
+            if (plat.isEmpty() || !Latido.capturaActiva(this)) return;
+            // Resumen de ventas del día (para el corte): cuando la pantalla se queda quieta 2 s se revisa si es el historial
+            h.removeCallbacks(revisionResumen); h.postDelayed(revisionResumen, 2000);
             // DiDi necesita elegir la tarjeta naranja: sigue siendo solo con el botón
-            if (plat.isEmpty() || "DiDi".equals(plat)) return;
-            if (!Latido.capturaActiva(this)) return;
+            if ("DiDi".equals(plat)) return;
             // Registro automático: cuando la pantalla se queda quieta 2 s, revisa el tablero de pedidos
             if (Latido.autoActivo(this)) { h.removeCallbacks(revisionTablero); h.postDelayed(revisionTablero, 2000); }
             // Si hay una lectura completa esperando, cualquier movimiento la vuelve a posponer
@@ -217,7 +220,8 @@ public class CapturaService extends AccessibilityService {
             StringBuilder sb = new StringBuilder();
             for (Nodo x : todos) sb.append(x.s).append('\n');
             String todo = sb.toString();
-            // Solo en el tablero (no dentro de un pedido abierto)
+            // Solo en el tablero (no dentro de un pedido abierto ni en el historial)
+            if (Pattern.compile("(?i)historial|resumen de ventas").matcher(todo).find()) return;
             if (DETALLE.matcher(todo).find() || TOTAL.matcher(todo).find() || LINEA_PRODUCTO.matcher(todo).find()) return;
             Rect pantalla = new Rect();
             raiz.getBoundsInScreen(pantalla);
@@ -951,13 +955,67 @@ public class CapturaService extends AccessibilityService {
         });
     }
 
+    // ---------- Resumen de ventas automático (para el corte) ----------
+    //
+    // Si la pantalla quieta es el historial / resumen de ventas de la app, lee sus cifras, toma la imagen
+    // y lo manda a Bee's para guardarlo en el día. Solo vuelve a mandar si la pantalla cambió.
+
+    private static final Pattern RES_UBER = Pattern.compile("(?is)(?=.*historial de pedidos)(?=.*\\bventas\\b)(?=.*\\bpedidos\\b)(?=.*(entrega en curso|completado|entregado|calificaci)).*");
+    private static final Pattern RES_RAPPI = Pattern.compile("(?is)(?=.*resumen de ventas)(?=.*total con descuentos).*");
+    private static final Pattern RES_DIDI = Pattern.compile("(?is)(?=.*historial)(?=.*\\bventas\\b)(?=.*(ganancias estimadas|n[uú]mero de recolec|pedido aceptado)).*");
+    private static final Pattern RES_RESV = Pattern.compile("(?is)(?=.*historial de pedidos)(?=.*(pago pendiente|pedidos completados))(?=.*id de pedido).*");
+    private static final Pattern MONTOS = Pattern.compile("(?i)(\\$|mx\\$|mxn|mex\\$)\\s?[\\d,]+(\\.\\d{1,2})?|\\b\\d{1,2}/\\d{1,2}/\\d{4}\\b|\\b\\d{4}-\\d{2}-\\d{2}\\b|\\b\\d{1,2} (de )?[a-z]{3}\\.? \\d{4}\\b");
+    private final java.util.Map<String, String> firmaResumen = new java.util.HashMap<>();
+    private final Runnable revisionResumen = this::revisarResumen;
+
+    private void revisarResumen() {
+        try {
+            if (ocupado || !Latido.capturaActiva(this)) return;
+            AccessibilityNodeInfo raiz = getRootInActiveWindow();
+            if (raiz == null) return;
+            String pkg = String.valueOf(raiz.getPackageName());
+            String plat = plataformaDe(pkg);
+            if (plat.isEmpty()) return;
+            List<String> l = new ArrayList<>();
+            recolectar(raiz, l);
+            String texto = String.join("\n", l);
+            Pattern p = "Uber".equals(plat) ? RES_UBER : "Rappi".equals(plat) ? RES_RAPPI : "DiDi".equals(plat) ? RES_DIDI : RES_RESV;
+            if (!p.matcher(texto).matches()) return;
+            // Firma: cifras y fechas que se ven; si no cambió, no se vuelve a mandar
+            StringBuilder f = new StringBuilder(plat);
+            java.util.regex.Matcher m = MONTOS.matcher(texto);
+            while (m.find() && f.length() < 600) f.append('|').append(m.group());
+            String firma = f.toString();
+            if (firma.equals(firmaResumen.get(plat))) return;
+            firmaResumen.put(plat, firma);
+            Latido.recordarPlataforma(this, plat);
+            guardarPantalla(img -> mandarResumen(texto, plat, img));
+        } catch (Exception ignored) { }
+    }
+
+    private void mandarResumen(String texto, String plat, String img) {
+        h.post(() -> {
+            MainActivity m = MainActivity.activa;
+            if (m != null) { m.resumenDetectado(texto, plat, img == null ? "" : img); return; }
+            // La app no está abierta: se guarda y se manda cuando se abra
+            try {
+                org.json.JSONObject o = new org.json.JSONObject().put("texto", texto).put("plat", plat).put("img", img == null ? "" : img);
+                java.io.File dir = new java.io.File(getFilesDir(), "resumenes");
+                if (!dir.exists()) dir.mkdirs();
+                try (java.io.FileOutputStream os = new java.io.FileOutputStream(new java.io.File(dir, plat + ".json"))) { os.write(o.toString().getBytes("UTF-8")); }
+            } catch (Exception ignored) { }
+        });
+    }
+
     // ---------- Imagen de la pantalla (para el resumen de ventas del corte) ----------
     static volatile String ultimaPantalla = "";
     static volatile long ultimaPantallaAt = 0;
 
     /** Guarda una imagen de lo que se ve al tocar el hexágono (Android 11 o más nuevo). Si es un resumen de ventas, Bee's la guarda para el corte. */
-    private void guardarPantalla() {
-        if (Build.VERSION.SDK_INT < 30) return;
+    private void guardarPantalla() { guardarPantalla(null); }
+
+    private void guardarPantalla(Consumer<String> listo) {
+        if (Build.VERSION.SDK_INT < 30) { if (listo != null) listo.accept(""); return; }
         try {
             takeScreenshot(Display.DEFAULT_DISPLAY, getMainExecutor(), new TakeScreenshotCallback() {
                 @Override
@@ -974,14 +1032,15 @@ public class CapturaService extends AccessibilityService {
                             chica.compress(Bitmap.CompressFormat.JPEG, 72, out);
                             ultimaPantalla = android.util.Base64.encodeToString(out.toByteArray(), android.util.Base64.NO_WRAP);
                             ultimaPantallaAt = System.currentTimeMillis();
-                        } catch (Exception ignored) { }
+                            if (listo != null) listo.accept(ultimaPantalla);
+                        } catch (Exception e) { if (listo != null) listo.accept(""); }
                     }).start();
                 }
 
                 @Override
-                public void onFailure(int codigo) { }
+                public void onFailure(int codigo) { if (listo != null) listo.accept(""); }
             });
-        } catch (Exception ignored) { }
+        } catch (Exception e) { if (listo != null) listo.accept(""); }
     }
 
     private void tomarImagen(Consumer<Bitmap> listo) {

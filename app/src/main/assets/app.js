@@ -168,6 +168,7 @@ function pintarConfirmar(){
   if (estadoConf === 'pedido' && order) { el.innerHTML = pantallaPedido(); enlazarPedido(); return; }
   el.innerHTML = pantallaVacia();
   const b = $('irAj'); if (b) b.onclick = abrirAjustesConClave;
+  const ia = $('irApp'); if (ia) ia.onclick = () => { const t = window.Android.abrirApp ? window.Android.abrirApp() : ''; if (t) aviso(t, true); };
 }
 function pantallaVacia(){
   let est = {}; try { est = APP ? JSON.parse(window.Android.estado()) : {lectura:true}; } catch(e) {}
@@ -180,7 +181,8 @@ function pantallaVacia(){
   let h = `<div class="vacio">
     <div class="big hex late" aria-hidden="true"><svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="#3a2c00" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7V5a1 1 0 011-1h2M17 4h2a1 1 0 011 1v2M20 17v2a1 1 0 01-1 1h-2M7 20H5a1 1 0 01-1-1v-2"></path><path d="M8 12h8"></path></svg></div>
     <h2>${modoReg ? 'Abre el pedido del ' + esc(nombreDia(modoReg.dia)) + ' y toca el hexágono' : listo && conClave ? 'Abre un pedido y toca el hexágono amarillo' : 'Falta poco para empezar'}</h2>
-    <p>${modoReg ? 'Estás en modo registro: lo que captures se guarda en ese día, sin avisos a Telegram ni petición de foto.' : listo && conClave ? 'Funciona encima de Uber, DiDi, Rappi y Reservándonos. Al cierre, captura también el resumen de ventas de cada app.' : 'Completa estos pasos una sola vez en esta tableta.'}</p>`;
+    ${APP && est.plat && listo && conClave && !modoReg ? `<button class="btn primary" id="irApp" type="button" style="font-size:22px;padding:18px 34px;background:${PCOLOR[est.plat] || 'var(--honey)'};color:#fff">Ir a ${esc(est.plat)}</button>` : ''}
+    <p>${modoReg ? 'Estás en modo registro: lo que captures se guarda en ese día, sin avisos a Telegram ni petición de foto.' : listo && conClave ? 'Funciona encima de Uber, DiDi, Rappi y Reservándonos. Al cierre, abre el historial de ventas de la app: se lee y se guarda solo para el corte.' : 'Completa estos pasos una sola vez en esta tableta.'}</p>`;
   if (!listo || !conClave) {
     h += `<div class="pasos">
       <div class="paso ${listo?'ok':'falta'}"><b>1. Activar el botón Capturar</b><span class="hint">${listo ? 'Listo.' : 'Se activa en Accesibilidad.'}</span></div>
@@ -417,6 +419,44 @@ async function guardarImagenResumen(rec){
     if (!r.ok) throw new Error('HTTP ' + r.status);
   } catch(e) { aviso('No se pudo subir la imagen del resumen', true); }
 }
+/* La capturadora detectó sola la pantalla de ventas de una app: se guarda el resumen y su imagen sin preguntar */
+window.resumenDetectado = async (txt, plat, img) => {
+  const r = parseResumen(txt, plat);
+  if (!r || r.total == null) return;
+  r.dia = r.dia || hoy();
+  const id = r.dia + '|' + r.plat;
+  const ya = getResumenes(r.dia).find(x => x.id === id);
+  const igual = ya && Number(ya.total) === Number(r.total) && (ya.pedidos ?? null) === (r.pedidos ?? null);
+  if (!igual) {
+    const rec = {id, dia:r.dia, plat:r.plat, pedidos:r.pedidos, cancelados:r.cancelados, total:r.total, total_nota:r.totalNota,
+      lista:r.lista, extra:r.extra, texto:String(txt).slice(0, 8000), updated_at:new Date().toISOString()};
+    if (SYNC()) { setColaRes([...colaRes().filter(x => x.id !== rec.id), rec]); await subirCola(); }
+    else { const m = store.get('bees.resumen.' + r.dia, {}); m[r.plat] = rec; store.set('bees.resumen.' + r.dia, m); }
+  }
+  if (img && SYNC()) {
+    try { await sb('POST', 'delivery_resumen_img', '', {id, dia:r.dia, plat:r.plat, img, created_at:new Date().toISOString()}, 'resolution=merge-duplicates,return=minimal'); } catch(e) {}
+  }
+  if (!igual) {
+    aviso(`Resumen de ${PNAME[r.plat]} guardado · ${dinero(r.total)}`);
+    if (SYNC()) { await refrescar(viewDay); pintarTodo(); }
+  }
+};
+function resumenesPendientes(){
+  if (!APP || !window.Android.resumenesPendientes) return;
+  let l = []; try { l = JSON.parse(window.Android.resumenesPendientes() || '[]'); } catch(e) {}
+  l.reduce((p, x) => p.then(() => window.resumenDetectado(x.texto, x.plat, x.img)), Promise.resolve());
+}
+async function bajarImagenesDia(){
+  const m = $('xImgMsg'); if (m) m.textContent = 'Buscando imágenes…';
+  try {
+    const r = await sb('GET', 'delivery_resumen_img', '?select=plat,img&dia=eq.' + viewDay);
+    const fs = r.ok ? await r.json() : [];
+    if (!fs.length) { if (m) m.textContent = 'No hay imágenes de ' + nombreDia(viewDay) + '.'; return; }
+    const lista = fs.map(f => ({nombre:'Resumen_' + (PNAME[f.plat] || f.plat).replace(/\W/g,'') + '_' + viewDay + '.jpg', b64:f.img}));
+    if (APP && window.Android.guardarImagenes) { const t = window.Android.guardarImagenes(JSON.stringify(lista)); if (m) m.textContent = t; }
+    else lista.forEach(x => { const a = document.createElement('a'); a.href = 'data:image/jpeg;base64,' + x.b64; a.download = x.nombre; document.body.appendChild(a); a.click(); a.remove(); });
+  } catch(e) { if (m) m.textContent = 'Sin conexión: no se pudieron bajar las imágenes.'; }
+}
 async function verImagenResumen(p){
   $('modalCaja').innerHTML = `<h2>Resumen de ${esc(PNAME[p])}</h2><p class="hint" style="margin:0">Cargando imagen…</p>`;
   $('modal').hidden = false;
@@ -538,7 +578,8 @@ function pintarExcel(){
   }
   el.innerHTML = barraDia('Excel y corte') + `<div class="dos">
     <section class="card"><div class="fila-tit"><h3>Corte</h3><div style="display:flex;gap:8px"><button class="btn small" type="button" id="cCopiar" style="background:var(--honey)">Copiar</button>${APP ? '<button class="btn small ghost" type="button" id="cCompartir">Compartir</button>' : ''}</div></div>
-      ${res.length ? '' : '<p class="hint" style="margin-top:0">Al cierre, abre el resumen de ventas de cada app y toca el hexágono para llenar el corte.</p>'}${corte}</section>
+      ${res.length ? '' : '<p class="hint" style="margin-top:0">Al cierre, abre el historial o resumen de ventas de cada app: la capturadora lo lee y guarda la imagen sola (o toca el hexágono).</p>'}${corte}
+      ${SYNC() ? '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:12px"><button class="btn ghost" type="button" id="xImagenes">Descargar imágenes del día</button><span class="hint" id="xImgMsg"></span></div>' : ''}</section>
     <section class="card"><div class="fila-tit"><h3>Concentrado del Excel</h3><label class="hint" style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="cTodos" ${conTodos?'checked':''} style="width:20px;height:20px;accent-color:var(--honey)"> Todos los productos</label></div>
       <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px"><button class="btn primary" type="button" id="xDescargar" style="font-size:18px;padding:14px 20px">Descargar Excel del día</button><span class="hint" id="xMsg">${log.filter(o => PL3.includes(o.platform)).length} pedidos · ${pl(marcas,'marca')}</span></div>
       ${con}</section></div>`;
@@ -548,6 +589,7 @@ function pintarExcel(){
   const cc = $('cCompartir'); if (cc) cc.onclick = () => window.Android.compartir(textoCorte());
   $('xDescargar').onclick = descargarExcel;
   el.querySelectorAll('[data-img]').forEach(b => b.onclick = () => verImagenResumen(b.dataset.img));
+  const xi = $('xImagenes'); if (xi) xi.onclick = bajarImagenesDia;
 }
 function copiar(t, ok){
   if (APP) { try { window.Android.copiar(t); aviso(ok); } catch(e) { aviso('No se pudo copiar', true); } return; }
@@ -1113,4 +1155,5 @@ pintarModo();
 if (SYNC()) { refrescar(viewDay).then(() => { pintarTodo(); subirCola(); }); setInterval(() => { subirCola(); }, 60000); }
 pintarTodo();
 revisarModo(true);
+setTimeout(resumenesPendientes, 2500);
 })();

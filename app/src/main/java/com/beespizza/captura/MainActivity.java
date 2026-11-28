@@ -7,6 +7,7 @@ import android.content.ClipboardManager;
 import android.content.ContentResolver;
 import android.content.ContentValues;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Build;
@@ -45,6 +46,10 @@ public class MainActivity extends Activity {
     static MainActivity activa;
 
     /** El servicio de accesibilidad detectó un pedido nuevo en la app de delivery. */
+    void resumenDetectado(String texto, String plat, String img) {
+        js("window.resumenDetectado && resumenDetectado(" + JSONObject.quote(texto) + "," + JSONObject.quote(plat) + "," + JSONObject.quote(img) + ")");
+    }
+
     void pedidoDetectado(String texto, String plat) {
         runOnUiThread(() -> js("window.pedidoDetectado && pedidoDetectado(" + JSONObject.quote(texto) + "," + JSONObject.quote(plat) + ")"));
     }
@@ -339,6 +344,92 @@ public class MainActivity extends Activity {
                 }
             } catch (Exception e) {
                 return "No se pudo guardar el Excel: " + e.getMessage();
+            }
+        }
+
+        /** Abre la app de pedidos de esta tableta (Uber, Rappi, DiDi o Reservándonos). Devuelve un mensaje si no la encuentra. */
+        @JavascriptInterface
+        public String abrirApp() {
+            SharedPreferences pr = AvisosService.prefs(MainActivity.this);
+            String plat = pr.getString("plat_tableta", "");
+            android.content.pm.PackageManager pm = getPackageManager();
+            String pkg = pr.getString("app_pkg", "");
+            Intent i = pkg.isEmpty() ? null : pm.getLaunchIntentForPackage(pkg);
+            if (i == null && !plat.isEmpty()) {
+                String clave = plat.toLowerCase().startsWith("reserv") ? "reserv" : plat.toLowerCase();
+                Intent q = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER);
+                String mejor = null;
+                for (android.content.pm.ResolveInfo r : pm.queryIntentActivities(q, 0)) {
+                    String p = r.activityInfo.packageName;
+                    if (!p.toLowerCase().contains(clave)) continue;
+                    if (mejor == null || p.toLowerCase().matches(".*(restaurant|merchant|partner|aliado|store|tienda|orders|shop).*")) mejor = p;
+                }
+                if (mejor != null) i = pm.getLaunchIntentForPackage(mejor);
+            }
+            if (i == null) return "No encontré la app de " + (plat.isEmpty() ? "pedidos" : plat) + " en esta tableta. Ábrela una vez y vuelve a intentar.";
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(i);
+            return "";
+        }
+
+        /** Resúmenes de ventas que se detectaron con la app cerrada (se entregan una vez y se borran). */
+        @JavascriptInterface
+        public String resumenesPendientes() {
+            org.json.JSONArray a = new org.json.JSONArray();
+            File dir = new File(getFilesDir(), "resumenes");
+            File[] fs = dir.listFiles();
+            if (fs == null) return "[]";
+            for (File f : fs) {
+                try (java.io.FileInputStream in = new java.io.FileInputStream(f)) {
+                    byte[] b = new byte[(int) f.length()];
+                    int n = 0; while (n < b.length) { int k = in.read(b, n, b.length - n); if (k < 0) break; n += k; }
+                    a.put(new JSONObject(new String(b, 0, n, "UTF-8")));
+                } catch (Exception ignored) { }
+                f.delete();
+            }
+            return a.toString();
+        }
+
+        /** Guarda varias imágenes en Imágenes/Bees y abre el menú para compartirlas juntas. */
+        @JavascriptInterface
+        public String guardarImagenes(String json) {
+            try {
+                org.json.JSONArray a = new org.json.JSONArray(json);
+                java.util.ArrayList<Uri> uris = new java.util.ArrayList<>();
+                for (int k = 0; k < a.length(); k++) {
+                    JSONObject o = a.getJSONObject(k);
+                    byte[] datos = Base64.decode(o.getString("b64"), Base64.DEFAULT);
+                    if (Build.VERSION.SDK_INT >= 29) {
+                        ContentValues v = new ContentValues();
+                        v.put(MediaStore.MediaColumns.DISPLAY_NAME, o.getString("nombre"));
+                        v.put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg");
+                        v.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/Bees");
+                        Uri uri = getContentResolver().insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, v);
+                        if (uri == null) continue;
+                        try (OutputStream os = getContentResolver().openOutputStream(uri)) { os.write(datos); }
+                        uris.add(uri);
+                    } else {
+                        if (checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+                            runOnUiThread(() -> requestPermissions(new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE}, 9));
+                            return "Acepta el permiso de almacenamiento y vuelve a tocar «Descargar».";
+                        }
+                        File dir = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES), "Bees");
+                        if (!dir.exists()) dir.mkdirs();
+                        try (FileOutputStream os = new FileOutputStream(new File(dir, o.getString("nombre")))) { os.write(datos); }
+                    }
+                }
+                if (!uris.isEmpty()) {
+                    Intent i = new Intent(Intent.ACTION_SEND_MULTIPLE);
+                    i.setType("image/jpeg");
+                    i.putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris);
+                    i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                    Intent elegir = Intent.createChooser(i, "Enviar resúmenes de ventas");
+                    elegir.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    startActivity(elegir);
+                }
+                return a.length() + " imagen(es) guardadas en Imágenes/Bees";
+            } catch (Exception e) {
+                return "No se pudieron guardar las imágenes: " + e.getMessage();
             }
         }
 
