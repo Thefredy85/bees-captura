@@ -157,6 +157,8 @@ final class Latido {
                 // Mientras el equipo no elija su modo, se usa el que tenga la base
                 if (r.has("rol") && prefs(c).getString("modo", "").isEmpty()) prefs(c).edit().putString("rol", r.optString("rol", "tableta")).apply();
                 if (r.has("captura")) aplicarCaptura(c, r.optBoolean("captura", true));
+                // Registro automático: lo prende el administrador desde su celular; las tabletas lo saben en el siguiente latido
+                if (r.has("auto_hasta")) prefs(c).edit().putLong("auto_hasta", r.optLong("auto_hasta", 0)).apply();
             } catch (Exception ignored) {
             } finally { if (con != null) con.disconnect(); }
         }).start();

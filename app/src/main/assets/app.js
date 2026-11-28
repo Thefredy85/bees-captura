@@ -1123,8 +1123,10 @@ function avisarAuto(){ if (APP && window.Android.ponerAuto) { try { window.Andro
 window.pedidoDetectado = async (t, plataforma, lanzada) => {
   // «lanzada»: Bee's se abrió solo para registrar en automático; si no registra, regresa a la app de pedidos
   const regresar = () => { if (lanzada && APP && window.Android.volver) { try { window.Android.volver(); } catch(e) {} } };
-  if (!SYNC() || (estadoConf === 'pedido' && order)) return regresar();
+  if (!SYNC()) return regresar();
   await refrescar(dayOf());
+  // Si en Confirmar quedó otro pedido a medias: en automático (o si es el mismo) se sigue; si no, no se pisa
+  if (estadoConf === 'pedido' && order && !(autoOn && Date.now() < autoHasta) && !lanzada) return regresar();
   // Si al final no se usa la lectura, la pantalla regresa exactamente a como estaba
   const antes = {texto, order, resumen, estadoConf, plataformaHint, metodo, fechaOk, verInfo, ultimoId};
   const descartar = () => { ({texto, order, resumen, estadoConf, plataformaHint, metodo, fechaOk, verInfo, ultimoId} = antes); regresar(); };

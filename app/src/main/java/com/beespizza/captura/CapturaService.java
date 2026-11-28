@@ -147,6 +147,7 @@ public class CapturaService extends AccessibilityService {
     // toca SOLO el número del pedido, lee el detalle (bajando dentro del detalle), lo cierra con la X
     // (o «atrás») y lo manda a Bee's para registrarse. Nunca toca Aceptar, Rechazar ni Listo.
 
+    private static final Pattern UBER_TARJETA = Pattern.compile("^#?([0-9A-Z]{5})\\s*•");
     private static final Pattern UBER_SOLO = Pattern.compile("^#?\\s?([0-9A-F]{5})$");
     private static final Pattern DETALLE = Pattern.compile("(?i)(detalle de (la )?orden|total sugerido|detalles del pedido)");
     private static final Pattern PENDIENTE = Pattern.compile("(?im)(para aceptar|aceptar pedido|^\\s*aceptar\\s*$|rechazar|nuevo pedido|pedido nuevo)");
@@ -180,6 +181,8 @@ public class CapturaService extends AccessibilityService {
         if ("Uber".equals(plat)) {
             m = COD_UBER.matcher(s);
             if (m.find()) return m.group(1);
+            m = UBER_TARJETA.matcher(s.trim());
+            if (m.find() && m.group(1).matches(".*\\d.*")) return m.group(1);
             m = UBER_SOLO.matcher(s.trim());
             if (m.matches() && m.group(1).matches(".*\\d.*")) return m.group(1);
         }
@@ -458,8 +461,11 @@ public class CapturaService extends AccessibilityService {
     /** Si la pantalla de Bee's está abierta, la pregunta ahí; si no, manda una notificación. */
     private void avisarDetectado(String texto, String plat) {
         MainActivity m = MainActivity.activa;
-        if (m != null) { m.pedidoDetectado(texto, plat); return; }
-        if (Latido.autoActivo(this)) {
+        if (m != null) {
+            m.pedidoDetectado(texto, plat);
+            if (Latido.autoActivo(this)) return;
+            // Sin automático: además del aviso dentro de Bee's, sale una notificación para tocar y registrar
+        } else if (Latido.autoActivo(this)) {
             Intent a = new Intent(this, MainActivity.class);
             a.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_NO_ANIMATION);
             a.putExtra("texto", texto);
@@ -475,12 +481,19 @@ public class CapturaService extends AccessibilityService {
             nm.createNotificationChannel(new android.app.NotificationChannel("pedidos", "Pedidos nuevos", android.app.NotificationManager.IMPORTANCE_HIGH));
         Intent i = new Intent(this, MainActivity.class);
         i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        i.putExtra("texto", texto);
+        i.putExtra("plataforma", plat);
+        i.putExtra("metodo", "detectado");
+        i.putExtra("paquete", paquete);
+        i.putExtra("detectado", true);
         android.app.PendingIntent pi = android.app.PendingIntent.getActivity(this, 0, i,
                 android.app.PendingIntent.FLAG_IMMUTABLE | android.app.PendingIntent.FLAG_UPDATE_CURRENT);
+        String cod = codigoDe(texto);
         android.app.Notification n = new androidx.core.app.NotificationCompat.Builder(this, "pedidos")
                 .setSmallIcon(android.R.drawable.ic_dialog_info)
-                .setContentTitle("Se detectó pedido nuevo · " + plat)
-                .setContentText("Abre Bee's Captura y toca Registrar si es el pedido.")
+                .setContentTitle("Pedido sin registrar · " + plat + (cod != null ? " #" + cod : ""))
+                .setContentText("Toca aquí para registrarlo en Bee's.")
+                .setPriority(androidx.core.app.NotificationCompat.PRIORITY_HIGH)
                 .setAutoCancel(true).setContentIntent(pi).build();
         nm.notify(4242, n);
     }
