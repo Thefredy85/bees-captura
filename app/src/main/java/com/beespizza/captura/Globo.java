@@ -125,8 +125,21 @@ final class Globo {
     /** Avisa unos segundos que ya quedó registrado. */
     void hecho(String plat, String mensaje, int anclaX, int anclaY, int anchoAncla) {
         quitar();
-        LinearLayout caja = tarjeta(plat, "✓ Registrado", VERDE, mensaje, null);
-        mostrar(caja, anclaX, anclaY, anchoAncla, 4500);
+        // La abejita sale del hexágono y vuela a donde aparece la tarjeta; al llegar, sale «✓ Registrado»
+        int[] pos = posicion(anclaX, anclaY, anchoAncla);
+        int cx = anclaX + anchoAncla / 2, cy = anclaY + anchoAncla / 2;
+        Abeja.volar(c, wm, cx, cy, pos[0] + dp(30), pos[1] + dp(18), () -> {
+            LinearLayout caja = tarjeta(plat, "✓ Registrado", VERDE, mensaje, null);
+            mostrar(caja, anclaX, anclaY, anchoAncla, 4500);
+        });
+    }
+
+    /** Dónde va la tarjeta: a la derecha del hexágono si cabe; si no, a la izquierda. */
+    private int[] posicion(int anclaX, int anclaY, int anchoAncla) {
+        int ancho = c.getResources().getDisplayMetrics().widthPixels;
+        int caja = dp(290);
+        int x = anclaX + anchoAncla + dp(10) + caja <= ancho ? anclaX + anchoAncla + dp(10) : Math.max(dp(8), anclaX - caja - dp(10));
+        return new int[]{x, Math.max(dp(8), anclaY - dp(10))};
     }
 
     private void mostrar(View v, int anclaX, int anclaY, int anchoAncla, long dura) {
@@ -136,11 +149,9 @@ final class Globo {
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
                 PixelFormat.TRANSLUCENT);
         p.gravity = Gravity.TOP | Gravity.START;
-        int ancho = c.getResources().getDisplayMetrics().widthPixels;
-        int caja = dp(290);
-        // A la derecha del hexágono si cabe; si no, a la izquierda
-        p.x = anclaX + anchoAncla + dp(10) + caja <= ancho ? anclaX + anchoAncla + dp(10) : Math.max(dp(8), anclaX - caja - dp(10));
-        p.y = Math.max(dp(8), anclaY - dp(10));
+        int[] pos = posicion(anclaX, anclaY, anchoAncla);
+        p.x = pos[0];
+        p.y = pos[1];
         try {
             wm.addView(v, p);
             vista = v;

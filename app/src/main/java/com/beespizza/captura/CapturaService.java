@@ -707,7 +707,13 @@ public class CapturaService extends AccessibilityService {
     /** La pantalla de confirmación avisa que se registró: el hexágono se pone verde y sale el aviso. */
     void marcarRegistrado(String mensaje) {
         h.post(() -> {
-            if (burbuja != null) burbuja.setEstado(Burbuja.HECHO);
+            if (burbuja != null) {
+                burbuja.setEstado(Burbuja.HECHO);
+                // El hexágono da un saltito antes de que salga la abejita
+                final View hx = burbuja;
+                hx.animate().scaleX(1.18f).scaleY(1.18f).setDuration(160)
+                        .withEndAction(() -> hx.animate().scaleX(1f).scaleY(1f).setDuration(220).start()).start();
+            }
             if (mensaje == null || mensaje.isEmpty()) return;
             // El globito junto al hexágono; si no hay hexágono, el aviso normal
             if (burbuja != null && globo() != null) {
