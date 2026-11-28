@@ -570,13 +570,13 @@ function pintarExcel(){
   let con = '';
   if (!marcas && !conTodos) con = `<div class="empty">Sin productos ${viewDay === hoy() ? 'todavía hoy' : 'ese día'}.</div>`;
   else {
-    con = '<div class="tw"><table><thead><tr><th>Producto</th>' + PL3.map(p => `<th class="n">${corto(p)}</th>`).join('') + '<th class="n">Total</th></tr></thead><tbody>';
+    con = '<p class="hint" style="margin:0 0 8px">Vista previa de la hoja CONCENTRADO DELIVERY del Excel.</p><div class="tw"><table><thead><tr><th>Producto</th>' + PL3.map(p => `<th class="n">${corto(p)}</th>`).join('') + '<th class="n">Total</th><th class="n">% día</th></tr></thead><tbody>';
     for (const [cat,a,b] of Registro.CATEGORIAS) {
       const fs = []; for (let r = a; r <= b; r++) { const t = tabla.get(r) || cero(); if (conTodos || suma(t)) fs.push([Registro.RENGLONES[r - Registro.FIRST_ROW], t]); }
       if (!fs.length) continue;
-      con += `<tr class="cat"><td colspan="${PL3.length + 2}">${cat}</td></tr>` + fs.map(([n,t]) => `<tr><td>${esc(n)}</td>${PL3.map(p => `<td class="n${t[p]?'':' cero'}">${t[p]}</td>`).join('')}<td class="n">${suma(t)}</td></tr>`).join('');
+      con += `<tr class="cat"><td colspan="${PL3.length + 3}">${cat}</td></tr>` + fs.map(([n,t]) => `<tr><td>${esc(n)}</td>${PL3.map(p => `<td class="n${t[p]?'':' cero'}">${t[p]}</td>`).join('')}<td class="n">${suma(t)}</td><td class="n${suma(t)?'':' cero'}">${marcas ? (suma(t) * 100 / marcas).toFixed(1) + '%' : '0%'}</td></tr>`).join('');
     }
-    con += '<tr class="tot"><td>Total</td>' + PL3.map(p => { let s = 0; tabla.forEach(t => s += t[p]); return `<td class="n">${s}</td>`; }).join('') + `<td class="n">${marcas}</td></tr></tbody></table></div>`;
+    con += '<tr class="tot"><td>Total</td>' + PL3.map(p => { let s = 0; tabla.forEach(t => s += t[p]); return `<td class="n">${s}</td>`; }).join('') + `<td class="n">${marcas}</td><td class="n">100%</td></tr></tbody></table></div>`;
   }
   el.innerHTML = barraDia('Excel y corte') + `<div class="dos">
     <section class="card"><div class="fila-tit"><h3>Corte</h3><div style="display:flex;gap:8px"><button class="btn small" type="button" id="cCopiar" style="background:var(--honey)">Copiar</button>${APP ? '<button class="btn small ghost" type="button" id="cCompartir">Compartir</button>' : ''}</div></div>
@@ -1000,7 +1000,7 @@ async function pintarAjustesSup(){
   if (!pintarAjustesSup.cargando) {
     pintarAjustesSup.cargando = true;
     try {
-      const [rt, rl] = await Promise.all([sb('GET', 'delivery_tabletas', '?select=*&order=plat.asc'), s.admin ? rpc('delivery_sup', {accion:'lista', pin:s.pin}) : Promise.resolve(null)]);
+      const [rt, rl] = await Promise.all([sb('GET', 'delivery_tabletas', '?select=*&rol=neq.celular&order=plat.asc'), s.admin ? rpc('delivery_sup', {accion:'lista', pin:s.pin}) : Promise.resolve(null)]);
       if (rt.ok) tabletas = await rt.json();
       if (rl) supLista = rl;
     } catch(e) {}

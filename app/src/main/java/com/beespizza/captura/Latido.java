@@ -80,6 +80,7 @@ final class Latido {
     /** De qué plataforma es esta tableta (la última app de pedidos que avisó o se capturó aquí). */
     static void recordarPlataforma(Context c, String plat) {
         if (plat == null || plat.isEmpty()) return;
+        if (esAdmin(c)) return;   // los equipos de administrador no son de ninguna plataforma
         if (!plat.equals(prefs(c).getString("plat_tableta", ""))) prefs(c).edit().putString("plat_tableta", plat).apply();
     }
 
@@ -118,7 +119,7 @@ final class Latido {
                 JSONObject d = new JSONObject();
                 String id = Settings.Secure.getString(c.getContentResolver(), Settings.Secure.ANDROID_ID);
                 d.put("id", id == null ? Build.MODEL : id);
-                d.put("plat", prefs(c).getString("plat_tableta", ""));
+                d.put("plat", esAdmin(c) ? "" : prefs(c).getString("plat_tableta", ""));
                 d.put("modelo", Build.MANUFACTURER + " " + Build.MODEL);
                 d.put("nombre", Build.MODEL);
                 d.put("version", BuildConfigInfo.VERSION);
