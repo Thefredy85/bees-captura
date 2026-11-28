@@ -231,6 +231,7 @@ function parseSegment(lines, dict){
     const m = l.match(ITEM);
     if (m) {
       mode='';
+      if (inMod === 'otra') inMod = false;   // después de las respuestas, una línea «1 × …» ya es otro producto
       const qty = parseInt(m[1].replace(/[lIi|]/g,'1'),10) || 1;
       const promo = /promoci[oó]n/i.test(m[2]);
       let name = m[2].replace(/\s+promoci[oó]n\s*$/i,'').trim();
@@ -251,9 +252,11 @@ function parseSegment(lines, dict){
     const tl = l.match(TAM);
     if (tl && cur) { cur.tam = tl[1]; inMod = false; lastWasMod = true; if (lines[i+1] && MONEY_ONLY.test(lines[i+1])) i++; continue; }
     if (isHeader(l)) { inMod = /^(elige|desear?|selecciona|escoge|agrega|quieres)\b|\?$|:$/i.test(l) ? 'pregunta' : true; mode=''; continue; }
-    if (inMod === 'pregunta' && cur && !MONEY_ONLY.test(l) && /[A-Za-zÁÉÍÓÚÑáéíóúñ]{3}/.test(l) && l.length < 60) {
+    // Respuestas a una pregunta («¿Desea agregar bebida?»): la primera siempre; las siguientes (varias bebidas o dips) si traen su precio
+    if ((inMod === 'pregunta' || inMod === 'otra') && cur && !MONEY_ONLY.test(l) && /[A-Za-zÁÉÍÓÚÑáéíóúñ]{3}/.test(l) && l.length < 60
+        && (inMod === 'pregunta' || (lines[i+1] && MONEY_ONLY.test(lines[i+1])))) {
       const pr = lines[i+1] && MONEY_ONLY.test(lines[i+1]) ? money(lines[i+1]) : null; if (pr != null) i++;
-      cur.mods.push({qty:1, name:l, price:pr, map:resolve(l, dict)}); inMod = false; lastWasMod = true; continue;
+      cur.mods.push({qty:1, name:l, price:pr, map:resolve(l, dict)}); inMod = pr != null ? 'otra' : false; lastWasMod = true; continue;
     }
     if (mode==='orderNote') { seg.orderNotes.push(l); mode=''; continue; }
     if (mode==='comment') { if (cur && !cur.notes.includes(l)) cur.notes.push(l); continue; }
