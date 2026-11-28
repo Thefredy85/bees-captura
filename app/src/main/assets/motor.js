@@ -362,7 +362,7 @@ function toItems(order){
 
 // Renglones del formato CONCENTRADO DE VENTAS DELIVERY (6 a 107); los de 40 cm llevan «40 CM»
 const RENGLON_REG = () => (typeof Registro !== 'undefined') ? Registro : (typeof globalThis !== 'undefined' && globalThis.Registro);
-const renglon = r => { const R = RENGLON_REG(); const n = R && R.RENGLONES[r - R.FIRST_ROW]; return n ? (r >= 24 && r <= 42 ? n + ' 40 CM' : n) : ('Renglón ' + r); };
+const renglon = r => { const R = RENGLON_REG(); const n = R && R.RENGLONES[r - R.FIRST_ROW]; return n ? (R.CATEGORIAS[1] && r >= R.CATEGORIAS[1][1] && r <= R.CATEGORIAS[1][2] ? n + ' 40 CM' : n) : ('Renglón ' + r); };
 
 /* Lo que se marcará en el Excel para un pedido: [{excel, qty}] con nombres del formato, y lo que no tiene renglón. */
 function marcas(items){

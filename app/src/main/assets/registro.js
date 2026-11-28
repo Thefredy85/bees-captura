@@ -7,62 +7,84 @@
   'use strict';
   var MAX_COLS = 50;            // P1..P50 (columnas C..AZ)
   var FIRST_COL = 3;            // C
-  var FIRST_ROW = 6, LAST_ROW = 107, TOTAL_ROW = 109;
+  var FIRST_ROW = 6, LAST_ROW = 113, TOTAL_ROW = 115;
   var PLATS = ['uber', 'didi', 'rappi', 'resv'];
   var SHEET_FILE = { uber: 'xl/worksheets/sheet2.xml', didi: 'xl/worksheets/sheet3.xml', rappi: 'xl/worksheets/sheet4.xml', resv: 'xl/worksheets/sheet5.xml' };
   var CONC_COL = { uber: 'C', didi: 'D', rappi: 'E', resv: 'F' };
   var PLAT_NAMES = { uber: 'Uber Eats', didi: 'DiDi Food', rappi: 'Rappi', resv: 'Reservándonos' };
-  var ORILLA_ROW = { '35': 77, '40': 78 };        // ORILLA EXTRA DE QUESO 35 / 40 CM
-  var ORILLA_PUFF_ROW = { '35': 79, '40': 80 };   // ORILLA PUFF 35 / 40 CM
-  var COMBO_FIRST = 43, COMBO_LAST = 62;
   var NO_ROW_OK = { 'Bee Crust': 1 };             // no son combos: sus partes siempre se marcan
 
-  // Renglones del formato, como aparecen en la hoja (6 a 107)
-  var CATEGORIAS = [['PIZZAS 35 CM', 6, 23], ['PIZZAS 40 CM', 24, 42], ['COMBOS', 43, 62], ['COMPLEMENTOS', 63, 80],
-    ['POSTRES', 81, 86], ['DIPS / ADEREZOS', 87, 93], ['BEBIDAS', 94, 107]];
+  // Renglones del formato, como aparecen en la hoja (6 a 113)
+  var CATEGORIAS = [['PIZZAS 35 CM', 6, 24], ['PIZZAS 40 CM', 25, 43], ['COMBOS', 44, 66], ['COMPLEMENTOS', 67, 86],
+    ['POSTRES', 87, 92], ['DIPS / ADEREZOS', 93, 99], ['BEBIDAS', 100, 113]];
   var RENGLONES = ['BEE CLASSIC', 'DOUBLE CHEESE', 'SUPREME BEE', 'MIX MANÍA HAWAIIAN', 'MIX MANÍA XTREME', 'MIX MANÍA BEE MEAT MANÍA',
     'MIX MANÍA MEXICAN', 'MIX MANÍA VEGGIE', 'MIX MANÍA SPICY', 'MIX MANÍA (2 ESPECIALIDADES)', 'BEE MEAT MANÍA', 'BEE MEXICAN PIZZA',
-    'BEE VEGGIE', 'HAWAIIAN BEE', 'TROPICAL BEE SPICY', 'BEE TROPICAL PUFF', 'BEE CHEESY WINGS', 'QUEEN BEE',
+    'BEE VEGGIE', 'HAWAIIAN BEE', 'XTREME BEE', 'TROPICAL BEE SPICY', 'BEE TROPICAL PUFF', 'BEE CHEESY WINGS', 'QUEEN BEE',
     'BEE CLASSIC', 'DOUBLE CHEESE', 'SUPREME BEE', 'MIX MANÍA HAWAIIAN', 'MIX MANÍA XTREME', 'MIX MANÍA BEE MEAT MANÍA',
     'MIX MANÍA MEXICAN', 'MIX MANÍA VEGGIE', 'MIX MANÍA SPICY', 'MITAD Y MITAD (2 ESPECIALIDADES)', 'HAWAIIAN BEE', 'XTREME BEE',
     'BEE MEAT MANÍA', 'BEE MEXICANA', 'BEE VEGGIE', 'TROPICAL BEE SPICY', 'BEE TROPICAL PUFF', 'BEE CHEESY WINGS', 'QUEEN BEE',
     'BEE COMBO CLÁSICO', 'COMBO BEE SUPREME', 'BEE COMBO ANTOJO', 'BEE SNACK', 'BEE HAWAIIAN COMBO', 'BEE CRUNCH COMBO',
     'BEE HOUR (2 PIZZAS)', 'BEE DUO', 'BEE PIZZA & CHICKEN', 'COMBO BEE MAX', 'BEE CHEESY PACK', 'BEE FAMILY PACK', 'BEE FIESTA PACK',
     'BEE MIXTO DÚO', 'BEE MIXTO TRÍO', 'BEE MIXTO FAMILIAR', 'BEE MIXTO FIESTA', 'BEE GIGANTE CLÁSICO', 'BEE GIGANTE DÚO', 'BEE GIGANTE TRÍO',
+    'BEE DOUBLE DATE', 'BEE TROPICAL FEAST', 'COMBO QUEEN BEE',
     'CANELA DIPS', 'BEE CRUST QUESO', 'BEE CRUST HAWAIANO', 'BEE CRUST PEPPERONI', 'BEE CRUST CHAMPIÑONES', 'BUMBLEBEE QUESO',
     'BUMBLEBEE PEPPERONI', 'BUMBLEBEE MEXICANO', 'BUMBLEBEE HAWAIANO', 'BEE WINGS', 'BEE’S CHICKEN', 'PAPAS GAJO',
+    'CHEESY BOMBS (8 PZ)', 'CHEESY BOMBS (12 PZ)',
     'PORCIÓN EXTRA DE QUESO', 'PROTEÍNA EXTRA', 'ORILLA EXTRA DE QUESO 35 CM', 'ORILLA EXTRA DE QUESO 40 CM', 'ORILLA PUFF 35 CM', 'ORILLA PUFF 40 CM',
     'BEE’S CREAMY', 'BEE’S MEGA CREAMY', 'CHOCO BEE', 'FLUFFLY BEE', 'SWEET BEE BITES (8 PZ)', 'SWEET BEE BITES (12 PZ)',
     'BEE SAUCE', 'RANCH', 'BUFFALO', 'BBQ', 'MANGO HABANERO', 'HOT HONEY BEE', 'DIP DE QUESO',
     'AGUA MINERAL 600 ML', 'AGUA NATURAL 600 ML', 'BEE WATER 500 ML', 'COCA-COLA 600 ML', 'COCA-COLA LIGHT 600 ML', 'COCA-COLA ZERO 600 ML',
     'FANTA 600 ML', 'SPRITE 600 ML', 'FUZE TEA 600 ML', 'SIDRAL MUNDET 600 ML', 'COCA-COLA 2 L', 'FANTA 2 L', 'SPRITE 2 L', 'SIDRAL MUNDET 2 L'];
+  /* Renglón de una etiqueta del formato dentro de una categoría */
+  function fila(cat, etiqueta) {
+    for (var c = 0; c < CATEGORIAS.length; c++) {
+      if (CATEGORIAS[c][0] !== cat) continue;
+      for (var r = CATEGORIAS[c][1]; r <= CATEGORIAS[c][2]; r++) if (RENGLONES[r - FIRST_ROW] === etiqueta) return r;
+    }
+    throw new Error('Renglón no encontrado: ' + cat + ' / ' + etiqueta);
+  }
+  var ORILLA_ROW = { '35': fila('COMPLEMENTOS', 'ORILLA EXTRA DE QUESO 35 CM'), '40': fila('COMPLEMENTOS', 'ORILLA EXTRA DE QUESO 40 CM') };
+  var ORILLA_PUFF_ROW = { '35': fila('COMPLEMENTOS', 'ORILLA PUFF 35 CM'), '40': fila('COMPLEMENTOS', 'ORILLA PUFF 40 CM') };
+  var COMBO_FIRST = 44, COMBO_LAST = 66;
 
-  // Pizzas: renglón de 35 cm y de 40 cm (null = el formato no tiene ese tamaño)
-  var PIZZA = {
-    'Bee Classic': [6, 24], 'Double Cheese': [7, 25], 'Supreme Bee': [8, 26],
-    'Bee Mix Manía (Hawaiana)': [9, 27], 'Bee Mix Manía (Xtreme)': [10, 28], 'Bee Mix Manía (Meat Mania)': [11, 29],
-    'Bee Mix Manía (Mexicana)': [12, 30], 'Bee Mix Manía (Vegetariana)': [13, 31], 'Bee Mix Manía (Tropical Spicy)': [14, 32],
-    'Bee Mix Manía': [15, 33], 'Pizza 2 Especialidades': [15, 33],
-    'Bee Meat Mania': [16, 36], 'Bee Mexican Pizza': [17, 37], 'Bee Veggie': [18, 38], 'Hawaiian Bee': [19, 34],
-    'Tropical Bee Spicy': [20, 39], 'Bee Tropical Puff': [21, 40], 'Bee Cheesy Wings': [22, 41], 'Queen Bee': [23, 42],
-    'Xtreme Bee': [null, 35]
+  // Pizzas: etiqueta en 35 cm y en 40 cm (null = el formato no tiene ese tamaño)
+  var PIZZA_ETQ = {
+    'Bee Classic': ['BEE CLASSIC'], 'Double Cheese': ['DOUBLE CHEESE'], 'Supreme Bee': ['SUPREME BEE'],
+    'Bee Mix Manía (Hawaiana)': ['MIX MANÍA HAWAIIAN'], 'Bee Mix Manía (Xtreme)': ['MIX MANÍA XTREME'], 'Bee Mix Manía (Meat Mania)': ['MIX MANÍA BEE MEAT MANÍA'],
+    'Bee Mix Manía (Mexicana)': ['MIX MANÍA MEXICAN'], 'Bee Mix Manía (Vegetariana)': ['MIX MANÍA VEGGIE'], 'Bee Mix Manía (Tropical Spicy)': ['MIX MANÍA SPICY'],
+    'Bee Mix Manía': ['MIX MANÍA (2 ESPECIALIDADES)', 'MITAD Y MITAD (2 ESPECIALIDADES)'], 'Pizza 2 Especialidades': ['MIX MANÍA (2 ESPECIALIDADES)', 'MITAD Y MITAD (2 ESPECIALIDADES)'],
+    'Bee Meat Mania': ['BEE MEAT MANÍA'], 'Bee Mexican Pizza': ['BEE MEXICAN PIZZA', 'BEE MEXICANA'], 'Bee Veggie': ['BEE VEGGIE'], 'Hawaiian Bee': ['HAWAIIAN BEE'],
+    'Xtreme Bee': ['XTREME BEE'], 'Tropical Bee Spicy': ['TROPICAL BEE SPICY'], 'Bee Tropical Puff': ['BEE TROPICAL PUFF'], 'Bee Cheesy Wings': ['BEE CHEESY WINGS'], 'Queen Bee': ['QUEEN BEE']
   };
-  // Lo demás: un solo renglón
-  var ROW = {
-    'Combo Clásico': 43, 'Combo Bee Supreme': 44, 'Combo Antojo': 45, 'Bee Snack': 46, 'Bee Hawaiian Combo': 47, 'Bee Crunch': 48,
-    'Bee Hour': 49, 'Bee Duo': 50, 'Bee Pizza & Chicken': 51, 'Combo Bee Max': 52, 'Bee Cheesy Pack': 53, 'Bee Family Pack': 54,
-    'Bee Fiesta Pack': 55, 'Bee Mixto Dúo': 56, 'Bee Mixto Trío': 57, 'Bee Mixto Familiar': 58, 'Bee Mixto Fiesta': 59,
-    'Bee Gigante Clásico': 60, 'Bee Gigante Dúo': 61, 'Bee Gigante Trío': 62,
-    'Canela Dips': 63, 'Bee Crust (Queso)': 64, 'Bee Crust (Hawaiano)': 65, 'Bee Crust (Pepperoni)': 66, 'Bee Crust (Champiñones)': 67,
-    'Bumblebee de Queso': 68, 'Bumblebee Pepperoni': 69, 'Bumblebee Mexicanos': 70, 'Bumblebee Hawaianos': 71,
-    'Bee’s Wings': 72, 'Bee’s Chicken': 73, 'Papas Gajo': 74, 'Porción extra de queso': 75, 'Proteína extra': 76,
-    'Bee’s Creamy': 81, 'Bee’s Mega Creamy': 82, 'Choco Bee': 83, 'Fluffly Bee': 84,
-    'Sweet Bee Bites 8 pz': 85, 'Sweet Bee Bites': 85, 'Sweet Bee Bites 12 pz': 86,
-    'Bee Sauce': 87, 'Bee Sauce Chipotle': 87, 'Aderezo Ranch': 88, 'Aderezo Búfalo': 89, 'Aderezo BBQ': 90,
-    'Aderezo Mango Habanero': 91, 'Hot Honey Bee': 92, 'Dip de Queso': 93,
-    'Agua Mineral 600': 94, 'Agua Natural 600': 95, 'Bee Water': 96, 'Coca 600': 97, 'Coca Light 600': 98, 'Coca Zero 600': 99,
-    'Fanta 600': 100, 'Sprite 600': 101, 'Fuze Tea': 102, 'Mundet 600': 103, 'Coca 2L': 104, 'Fanta 2L': 105, 'Sprite 2L': 106, 'Mundet 2L': 107
+  var PIZZA = {};
+  Object.keys(PIZZA_ETQ).forEach(function (k) { var e = PIZZA_ETQ[k]; PIZZA[k] = [fila('PIZZAS 35 CM', e[0]), fila('PIZZAS 40 CM', e[1] || e[0])]; });
+  // Lo demás: catálogo → etiqueta del formato
+  var ETQ = {
+    'Combo Clásico': 'BEE COMBO CLÁSICO', 'Combo Bee Supreme': 'COMBO BEE SUPREME', 'Combo Antojo': 'BEE COMBO ANTOJO', 'Bee Snack': 'BEE SNACK',
+    'Bee Hawaiian Combo': 'BEE HAWAIIAN COMBO', 'Bee Crunch': 'BEE CRUNCH COMBO', 'Bee Hour': 'BEE HOUR (2 PIZZAS)', 'Bee Duo': 'BEE DUO',
+    'Bee Pizza & Chicken': 'BEE PIZZA & CHICKEN', 'Combo Bee Max': 'COMBO BEE MAX', 'Bee Cheesy Pack': 'BEE CHEESY PACK', 'Bee Family Pack': 'BEE FAMILY PACK',
+    'Bee Fiesta Pack': 'BEE FIESTA PACK', 'Bee Mixto Dúo': 'BEE MIXTO DÚO', 'Bee Mixto Trío': 'BEE MIXTO TRÍO', 'Bee Mixto Familiar': 'BEE MIXTO FAMILIAR',
+    'Bee Mixto Fiesta': 'BEE MIXTO FIESTA', 'Bee Gigante Clásico': 'BEE GIGANTE CLÁSICO', 'Bee Gigante Dúo': 'BEE GIGANTE DÚO', 'Bee Gigante Trío': 'BEE GIGANTE TRÍO',
+    'Bee Double Date': 'BEE DOUBLE DATE', 'Tropical Feast': 'BEE TROPICAL FEAST', 'Combo Queen Bee': 'COMBO QUEEN BEE', 'Queen Bee Promo': 'COMBO QUEEN BEE',
+    'Canela Dips': 'CANELA DIPS', 'Bee Crust (Queso)': 'BEE CRUST QUESO', 'Bee Crust (Hawaiano)': 'BEE CRUST HAWAIANO', 'Bee Crust (Pepperoni)': 'BEE CRUST PEPPERONI',
+    'Bee Crust (Champiñones)': 'BEE CRUST CHAMPIÑONES', 'Bumblebee de Queso': 'BUMBLEBEE QUESO', 'Bumblebee Pepperoni': 'BUMBLEBEE PEPPERONI',
+    'Bumblebee Mexicanos': 'BUMBLEBEE MEXICANO', 'Bumblebee Hawaianos': 'BUMBLEBEE HAWAIANO', 'Bee’s Wings': 'BEE WINGS', 'Bee’s Chicken': 'BEE’S CHICKEN',
+    'Papas Gajo': 'PAPAS GAJO', 'Cheesy Bombs 8 pz': 'CHEESY BOMBS (8 PZ)', 'Cheesy Bombs 12 pz': 'CHEESY BOMBS (12 PZ)',
+    'Porción extra de queso': 'PORCIÓN EXTRA DE QUESO', 'Proteína extra': 'PROTEÍNA EXTRA',
+    'Bee’s Creamy': 'BEE’S CREAMY', 'Bee’s Mega Creamy': 'BEE’S MEGA CREAMY', 'Choco Bee': 'CHOCO BEE', 'Fluffly Bee': 'FLUFFLY BEE',
+    'Sweet Bee Bites 8 pz': 'SWEET BEE BITES (8 PZ)', 'Sweet Bee Bites': 'SWEET BEE BITES (8 PZ)', 'Sweet Bee Bites 12 pz': 'SWEET BEE BITES (12 PZ)',
+    'Bee Sauce': 'BEE SAUCE', 'Bee Sauce Chipotle': 'BEE SAUCE', 'Aderezo Ranch': 'RANCH', 'Aderezo Búfalo': 'BUFFALO', 'Aderezo BBQ': 'BBQ',
+    'Aderezo Mango Habanero': 'MANGO HABANERO', 'Hot Honey Bee': 'HOT HONEY BEE', 'Dip de Queso': 'DIP DE QUESO',
+    'Agua Mineral 600': 'AGUA MINERAL 600 ML', 'Agua Natural 600': 'AGUA NATURAL 600 ML', 'Bee Water': 'BEE WATER 500 ML', 'Coca 600': 'COCA-COLA 600 ML',
+    'Coca Light 600': 'COCA-COLA LIGHT 600 ML', 'Coca Zero 600': 'COCA-COLA ZERO 600 ML', 'Fanta 600': 'FANTA 600 ML', 'Sprite 600': 'SPRITE 600 ML',
+    'Fuze Tea': 'FUZE TEA 600 ML', 'Mundet 600': 'SIDRAL MUNDET 600 ML', 'Coca 2L': 'COCA-COLA 2 L', 'Fanta 2L': 'FANTA 2 L', 'Sprite 2L': 'SPRITE 2 L', 'Mundet 2L': 'SIDRAL MUNDET 2 L'
   };
+  var ROW = {};
+  Object.keys(ETQ).forEach(function (k) {
+    var e = ETQ[k], r = RENGLONES.indexOf(e);
+    if (r < 0) throw new Error('Renglón no encontrado: ' + e);
+    ROW[k] = r + FIRST_ROW;
+  });
   function sinAcentos(s) { return String(s).normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[’']/g, '').toUpperCase().replace(/\s+/g, ' ').trim(); }
   var POR_NOMBRE = {};
   RENGLONES.forEach(function (n, i) { var k = sinAcentos(n); if (!POR_NOMBRE[k]) POR_NOMBRE[k] = FIRST_ROW + i; });
@@ -226,7 +248,7 @@
       var xml = await zip.file(file).async('string');
       var list = sorted.filter(function (o) { return o.plat === k && o.status !== 'cancelado'; });
       var plan = planPlatform(list, markParts);
-      xml = setCached(xml, 'B3', serial);
+      xml = setCached(xml, 'B3', serial).replace(/topLeftCell="[A-Z]+\d+"/, 'topLeftCell="C6"');
       var cnt = {};
       plan.cells.forEach(function (rc) { xml = setX(xml, colName(FIRST_COL + rc[1]) + rc[0]); cnt[rc[0]] = (cnt[rc[0]] || 0) + 1; });
       var sum = 0;
@@ -239,7 +261,7 @@
       report.plat[k] = { name: PLAT_NAMES[k], orders: list.length, withMarks: plan.orders, columns: plan.columns, layout: plan.layout, units: sum };
     }
     var c1 = await zip.file('xl/worksheets/sheet1.xml').async('string');
-    c1 = setCached(c1, 'F3', serial);
+    c1 = setCached(c1, 'F3', serial).replace(/topLeftCell="[A-Z]+\d+"/, 'topLeftCell="A6"');
     if (opts.sucursal) c1 = setText(c1, 'B3', opts.sucursal);
     var grand = 0, G = {};
     for (var r2 = FIRST_ROW; r2 <= LAST_ROW; r2++) {
