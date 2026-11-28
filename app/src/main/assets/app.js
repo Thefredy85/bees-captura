@@ -365,8 +365,17 @@ function comparar(r){
   const regs = getLog(r.dia).filter(o => o.platform === PNAME[r.plat]);
   const cods = new Set(regs.map(o => String(o.number).toUpperCase().replace(/^#/,'')));
   const lista = (r.lista||[]).filter(x => !/cancel/i.test(x.estado||''));
-  return {capturados: regs.length, cods, faltan: lista.filter(x => !cods.has(String(x.code).toUpperCase())), completa: r.pedidos == null || lista.length >= r.pedidos};
+  const porCod = new Map(regs.map(o => [String(o.number).toUpperCase().replace(/^#/,''), o]));
+  const registrado = regs.reduce((t, o) => t + (Number(o.total) || 0), 0);
+  const sinTotal = regs.filter(o => o.total == null).length;
+  // Pedidos registrados con otro precio que el de la lista de la plataforma
+  const distintos = lista.filter(x => x.monto != null && porCod.has(String(x.code).toUpperCase()) && Math.abs(Number(porCod.get(String(x.code).toUpperCase()).total || 0) - x.monto) >= 1)
+    .map(x => ({code:x.code, monto:x.monto, reg:porCod.get(String(x.code).toUpperCase()).total}));
+  const dif = r.total != null ? Math.round((r.total - registrado) * 100) / 100 : null;
+  return {capturados: regs.length, cods, faltan: lista.filter(x => !cods.has(String(x.code).toUpperCase())), completa: r.pedidos == null || lista.length >= r.pedidos,
+    registrado, sinTotal, distintos, dif, porCod};
 }
+const cuadreTxt = c => c.dif == null ? '' : Math.abs(c.dif) < 1 ? 'Cuadra en pesos' : c.dif > 0 ? 'Faltan ' + dinero(c.dif) + ' por registrar' : 'Sobran ' + dinero(-c.dif) + ' registrados';
 const lineaCorte = (p, total) => p === 'resv' ? `Reservandonos: ${dinero(total)}` : `${PCORTE[p]}: ${dinero(total)} -${COMISION[p]}%=${dinero(neto(p, total))}`;
 function pantallaResumen(){
   const r = resumen; r.dia = r.dia || hoy();
@@ -375,13 +384,14 @@ function pantallaResumen(){
   const cuadra = r.pedidos != null && c.capturados === r.pedidos;
   const ex = r.extra || {}, nombres = {total_acumulado:'Total acumulado', descuento_restaurante:'Descuento restaurante', total_restaurante:'Total restaurante', descuento_rappi:'Descuento Rappi', ventas_sin_descuentos:'Ventas sin descuentos'};
   const lista = (r.lista||[]).length ? `<div class="tw"><table><thead><tr><th>Pedido</th><th>Hora</th><th class="n">Monto</th><th>Estado</th><th>Capturado</th></tr></thead><tbody>${r.lista.map(x =>
-      `<tr><td>#${esc(x.code)}${x.cliente ? `<div class="hint">${esc(x.cliente)}</div>` : ''}</td><td>${esc(x.hora||'')}</td><td class="n">${x.monto != null ? dinero(x.monto) : ''}</td><td>${esc(x.estado||'')}</td><td>${c.cods.has(String(x.code).toUpperCase()) ? '<span class="chip ok">Sí</span>' : /cancel/i.test(x.estado||'') ? '<span class="chip">Cancelado</span>' : '<span class="chip bad">Falta</span>'}</td></tr>`).join('')}</tbody></table></div>` : '';
+      `<tr><td>#${esc(x.code)}${x.cliente ? `<div class="hint">${esc(x.cliente)}</div>` : ''}</td><td>${esc(x.hora||'')}</td><td class="n">${x.monto != null ? dinero(x.monto) : ''}</td><td>${esc(x.estado||'')}</td><td>${c.cods.has(String(x.code).toUpperCase()) ? (c.distintos.some(d => d.code === x.code) ? `<span class="chip warn">${dinero(c.porCod.get(String(x.code).toUpperCase()).total)}</span>` : '<span class="chip ok">Sí</span>') : /cancel/i.test(x.estado||'') ? '<span class="chip">Cancelado</span>' : '<span class="chip bad">Falta</span>'}</td></tr>`).join('')}</tbody></table></div>` : '';
   return `<div class="conf">
     <section class="card pedido entra">
       <div class="ped-head"><span class="plat" style="background:${PCOLOR[nom]}">${esc(nom)}</span><div class="ped-num">Resumen del día</div><div style="flex:1"></div>${ya ? '<span class="chip">Ya guardado: se reemplaza</span>' : ''}</div>
       <div class="meta"><span>Día <b>${esc(nombreDia(r.dia))}</b></span><span>Para el corte: <b>${esc(r.totalNota)}</b></span></div>
       ${r.pedidos != null ? (cuadra ? '<div class="banner ok">Cuadra: todos los pedidos de la app están capturados.</div>'
         : `<div class="banner warn">${esc(nom)} dice ${r.pedidos} pedidos y hay ${c.capturados} capturados.${c.faltan.length ? ' Falta: ' + c.faltan.map(x => '#' + esc(x.code) + (x.hora ? ' (' + x.hora + ')' : '')).join(', ') + '.' : ''}</div>`) : ''}
+      ${c.dif != null ? `<div class="banner ${Math.abs(c.dif) < 1 ? 'ok' : 'warn'}">${esc(nom)}: ${dinero(r.total)} · registrado en Bee's: ${dinero(c.registrado)} · <b>${esc(cuadreTxt(c))}</b>${c.sinTotal ? ` · ${pl(c.sinTotal, 'pedido')} sin total` : ''}${c.distintos.length ? '<br>Con otro precio: ' + c.distintos.map(x => '#' + esc(x.code) + ' (app ' + dinero(x.monto) + ', registrado ' + dinero(x.reg) + ')').join(', ') + '. Corrígelos en el Registro.' : ''}</div>` : ''}
       <div class="stats" style="grid-template-columns:repeat(3,minmax(0,1fr));margin:0">
         <div class="stat" style="--c:${PCOLOR[nom]}"><span class="eyebrow">Pedidos según la app</span><b class="num">${r.pedidos ?? '—'}</b>${r.cancelados ? `<span class="hint">${r.cancelados} cancelados</span>` : ''}</div>
         <div class="stat" style="--c:${PCOLOR[nom]}"><span class="eyebrow">Capturados</span><b class="num">${c.capturados}</b></div>
@@ -397,12 +407,38 @@ function pantallaResumen(){
       ${APP ? `<button class="btn ghost" id="btnVolverR" type="button">Volver a ${esc(nom)}</button>` : ''}
     </aside></div>`;
 }
+/* Imagen de la pantalla de ventas (se toma al tocar el hexágono) para el corte */
+async function guardarImagenResumen(rec){
+  if (!APP || !window.Android.pantallaCapturada) return;
+  let img = ''; try { img = window.Android.pantallaCapturada(); } catch(e) {}
+  if (!img) return;
+  try {
+    const r = await sb('POST', 'delivery_resumen_img', '', {id:rec.id, dia:rec.dia, plat:rec.plat, img, created_at:new Date().toISOString()}, 'resolution=merge-duplicates,return=minimal');
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+  } catch(e) { aviso('No se pudo subir la imagen del resumen', true); }
+}
+async function verImagenResumen(p){
+  $('modalCaja').innerHTML = `<h2>Resumen de ${esc(PNAME[p])}</h2><p class="hint" style="margin:0">Cargando imagen…</p>`;
+  $('modal').hidden = false;
+  try {
+    const r = await sb('GET', 'delivery_resumen_img', '?select=img,created_at&id=eq.' + encodeURIComponent(viewDay + '|' + p));
+    const f = r.ok ? (await r.json())[0] : null;
+    if (!f) { $('modalCaja').innerHTML = `<h2>Resumen de ${esc(PNAME[p])}</h2><p class="hint">No hay imagen guardada de este día. Se guarda al tocar el hexágono en la pantalla de ventas (tabletas con Android 11 o más nuevo).</p><div style="display:flex;justify-content:flex-end"><button class="bt lt" type="button" id="imCerrar">Cerrar</button></div>`; $('imCerrar').onclick = cerrarModal; return; }
+    const nombre = 'Resumen_' + PNAME[p].replace(/\W/g,'') + '_' + viewDay + '.jpg';
+    $('modalCaja').innerHTML = `<h2>Resumen de ${esc(PNAME[p])} · ${esc(nombreDia(viewDay))}</h2>
+      <img src="data:image/jpeg;base64,${f.img}" alt="Pantalla de ventas de ${esc(PNAME[p])}" style="width:100%;border-radius:12px;border:1px solid var(--line)">
+      <p class="hint" style="margin:0">Tomada ${esc(hhmm(f.created_at))}</p>
+      <div style="display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap">${APP ? '<button class="btn primary" type="button" id="imBajar">Descargar o compartir</button>' : `<a class="btn primary" href="data:image/jpeg;base64,${f.img}" download="${nombre}">Descargar</a>`}<button class="bt lt" type="button" id="imCerrar">Cerrar</button></div>`;
+    $('imCerrar').onclick = cerrarModal;
+    const b = $('imBajar'); if (b) b.onclick = () => { const m = window.Android.guardarImagen(nombre, f.img); aviso(m || 'Imagen guardada'); };
+  } catch(e) { $('modalCaja').innerHTML = '<h2>Sin conexión</h2><p class="hint">No se pudo cargar la imagen.</p><div style="display:flex;justify-content:flex-end"><button class="bt lt" type="button" id="imCerrar">Cerrar</button></div>'; $('imCerrar').onclick = cerrarModal; }
+}
 function enlazarResumen(){
   $('btnRes').onclick = () => {
     const r = resumen;
     const rec = {id: r.dia + '|' + r.plat, dia:r.dia, plat:r.plat, pedidos:r.pedidos, cancelados:r.cancelados, total:r.total, total_nota:r.totalNota,
       lista:r.lista, extra:r.extra, texto:texto.slice(0, 8000), updated_at:new Date().toISOString()};
-    if (SYNC()) { setColaRes([...colaRes().filter(x => x.id !== rec.id), rec]); subirCola(); }
+    if (SYNC()) { setColaRes([...colaRes().filter(x => x.id !== rec.id), rec]); subirCola(); guardarImagenResumen(rec); }
     else { const m = store.get('bees.resumen.' + r.dia, {}); m[r.plat] = rec; store.set('bees.resumen.' + r.dia, m); }
     ultimoMsg = `Resumen de ${PNAME[r.plat]} guardado · ${lineaCorte(r.plat, r.total)}`;
     if (APP && window.Android.registrado) { try { window.Android.registrado(ultimoMsg); } catch(err) {} }
@@ -474,15 +510,17 @@ function textoCorte(){
 function pintarExcel(){
   const el = $('vExcel'); const log = getLog(), res = getResumenes();
   // Corte
-  let corte = '<div class="tw"><table><thead><tr><th>App</th><th class="n">Capturados</th><th class="n">Venta</th><th class="n">Neto</th></tr></thead><tbody>', tot = 0;
+  let corte = '<div class="tw"><table><thead><tr><th>App</th><th class="n">Capturados</th><th class="n">Registrado</th><th class="n">Venta</th><th class="n">Neto</th></tr></thead><tbody>', tot = 0;
   for (const p of ['didi','uber','rappi','resv']) {
     const r = res.find(x => x.plat === p), capt = log.filter(o => o.platform === PNAME[p]).length;
     if (r) tot += neto(p, r.total);
     const c = r ? comparar(r) : null;
     const av = r && r.pedidos != null && capt !== r.pedidos ? `<div class="hint" style="color:var(--warn);font-weight:600">${capt < r.pedidos ? 'Faltan ' + (r.pedidos - capt) : 'Sobran ' + (capt - r.pedidos)}${c.faltan.length ? ': #' + c.faltan.map(x => esc(x.code)).join(', #') : ''}</div>` : '';
-    corte += `<tr><td><b style="color:${PCOLOR[PNAME[p]]}">${PNAME[p]}</b>${r ? (r.pendiente ? ' <span class="chip warn">Por subir</span>' : '') : '<div class="hint">sin resumen</div>'}</td><td class="n">${capt}${r && r.pedidos != null ? ' de ' + r.pedidos : ''}${av}</td><td class="n">${r ? dinero(r.total) : '—'}</td><td class="n">${r ? dinero(neto(p, r.total)) : '—'}</td></tr>`;
+    const regP = log.filter(o => o.platform === PNAME[p]).reduce((t, o) => t + (Number(o.total) || 0), 0);
+    const cq = c && c.dif != null ? `<div class="hint" style="font-weight:700;color:${Math.abs(c.dif) < 1 ? 'var(--ok)' : 'var(--warn)'}">${esc(cuadreTxt(c))}</div>${c.distintos.length ? `<div class="hint" style="color:var(--warn)">Otro precio: #${c.distintos.map(x => esc(x.code)).join(', #')}</div>` : ''}` : '';
+    corte += `<tr><td><b style="color:${PCOLOR[PNAME[p]]}">${PNAME[p]}</b>${r ? (r.pendiente ? ' <span class="chip warn">Por subir</span>' : '') : '<div class="hint">sin resumen</div>'}${r && SYNC() ? `<div><button class="btn small ghost" type="button" data-img="${p}" style="margin-top:4px;padding:4px 10px">Ver imagen</button></div>` : ''}</td><td class="n">${capt}${r && r.pedidos != null ? ' de ' + r.pedidos : ''}${av}</td><td class="n">${capt ? dinero(regP) : '—'}${cq}</td><td class="n">${r ? dinero(r.total) : '—'}</td><td class="n">${r ? dinero(neto(p, r.total)) : '—'}</td></tr>`;
   }
-  corte += `<tr class="tot"><td colspan="3">Delivery neto</td><td class="n">${dinero(tot)}</td></tr></tbody></table></div><pre class="corte">${esc(textoCorte())}</pre>`;
+  corte += `<tr class="tot"><td colspan="4">Delivery neto</td><td class="n">${dinero(tot)}</td></tr></tbody></table></div><pre class="corte">${esc(textoCorte())}</pre>`;
   // Concentrado (solo Uber, DiDi y Rappi: lo que lleva el Excel)
   const tabla = new Map(); let marcas = 0;
   log.filter(o => PL3.includes(o.platform)).forEach(o => (o.lines||[]).forEach(l => { const t = tabla.get(l.excel) || {Uber:0,DiDi:0,Rappi:0}; t[o.platform] += l.qty; tabla.set(l.excel, t); marcas += l.qty; }));
@@ -509,6 +547,7 @@ function pintarExcel(){
   $('cCopiar').onclick = () => copiar(textoCorte(), 'Corte copiado');
   const cc = $('cCompartir'); if (cc) cc.onclick = () => window.Android.compartir(textoCorte());
   $('xDescargar').onclick = descargarExcel;
+  el.querySelectorAll('[data-img]').forEach(b => b.onclick = () => verImagenResumen(b.dataset.img));
 }
 function copiar(t, ok){
   if (APP) { try { window.Android.copiar(t); aviso(ok); } catch(e) { aviso('No se pudo copiar', true); } return; }

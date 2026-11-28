@@ -342,6 +342,51 @@ public class MainActivity extends Activity {
             }
         }
 
+        /** La imagen de la pantalla de la última captura con el hexágono (JPEG en base64), si es reciente. */
+        @JavascriptInterface
+        public String pantallaCapturada() {
+            if (System.currentTimeMillis() - CapturaService.ultimaPantallaAt > 10 * 60 * 1000) return "";
+            return CapturaService.ultimaPantalla == null ? "" : CapturaService.ultimaPantalla;
+        }
+
+        /** Guarda la imagen del resumen en Imágenes/Bees y abre el menú para compartirla. */
+        @JavascriptInterface
+        public String guardarImagen(String nombre, String base64) {
+            try {
+                byte[] datos = Base64.decode(base64, Base64.DEFAULT);
+                if (Build.VERSION.SDK_INT >= 29) {
+                    ContentResolver cr = getContentResolver();
+                    ContentValues v = new ContentValues();
+                    v.put(MediaStore.MediaColumns.DISPLAY_NAME, nombre);
+                    v.put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg");
+                    v.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/Bees");
+                    Uri uri = cr.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, v);
+                    if (uri == null) return "No se pudo guardar la imagen.";
+                    try (OutputStream os = cr.openOutputStream(uri)) { os.write(datos); }
+                    Intent i = new Intent(Intent.ACTION_SEND);
+                    i.setType("image/jpeg");
+                    i.putExtra(Intent.EXTRA_STREAM, uri);
+                    i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                    Intent elegir = Intent.createChooser(i, "Enviar resumen de ventas");
+                    elegir.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    startActivity(elegir);
+                    return "Guardada en Imágenes/Bees: " + nombre;
+                } else {
+                    if (checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+                        runOnUiThread(() -> requestPermissions(new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE}, 9));
+                        return "Acepta el permiso de almacenamiento y vuelve a tocar «Descargar».";
+                    }
+                    File dir = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES), "Bees");
+                    if (!dir.exists()) dir.mkdirs();
+                    File f = new File(dir, nombre);
+                    try (FileOutputStream os = new FileOutputStream(f)) { os.write(datos); }
+                    return "Guardada en Imágenes/Bees: " + nombre;
+                }
+            } catch (Exception e) {
+                return "No se pudo guardar la imagen: " + e.getMessage();
+            }
+        }
+
         @JavascriptInterface
         public void compartir(String t) {
             Intent i = new Intent(Intent.ACTION_SEND);

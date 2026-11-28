@@ -621,6 +621,7 @@ public class CapturaService extends AccessibilityService {
         silencioso = false;
         tarjetaDidi = null;
         estadoBurbuja("Leyendo…");
+        guardarPantalla();
         if ("DiDi".equals(plataforma)) elegirTarjetaDidi(raiz, () -> {
             AccessibilityNodeInfo r = getRootInActiveWindow();
             if (r == null) { aviso("No pude leer la pantalla. Intenta de nuevo."); fin(); } else leerPorTexto(r, 0);
@@ -948,6 +949,39 @@ public class CapturaService extends AccessibilityService {
                 abrirConfirmacion(texto, plataforma, "imagen");
             }
         });
+    }
+
+    // ---------- Imagen de la pantalla (para el resumen de ventas del corte) ----------
+    static volatile String ultimaPantalla = "";
+    static volatile long ultimaPantallaAt = 0;
+
+    /** Guarda una imagen de lo que se ve al tocar el hexágono (Android 11 o más nuevo). Si es un resumen de ventas, Bee's la guarda para el corte. */
+    private void guardarPantalla() {
+        if (Build.VERSION.SDK_INT < 30) return;
+        try {
+            takeScreenshot(Display.DEFAULT_DISPLAY, getMainExecutor(), new TakeScreenshotCallback() {
+                @Override
+                public void onSuccess(ScreenshotResult r) {
+                    new Thread(() -> {
+                        try {
+                            Bitmap hw = Bitmap.wrapHardwareBuffer(r.getHardwareBuffer(), r.getColorSpace());
+                            Bitmap bmp = hw == null ? null : hw.copy(Bitmap.Config.ARGB_8888, false);
+                            r.getHardwareBuffer().close();
+                            if (bmp == null) return;
+                            float k = Math.min(1f, 1400f / Math.max(bmp.getWidth(), bmp.getHeight()));
+                            Bitmap chica = k < 1f ? Bitmap.createScaledBitmap(bmp, Math.round(bmp.getWidth() * k), Math.round(bmp.getHeight() * k), true) : bmp;
+                            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+                            chica.compress(Bitmap.CompressFormat.JPEG, 72, out);
+                            ultimaPantalla = android.util.Base64.encodeToString(out.toByteArray(), android.util.Base64.NO_WRAP);
+                            ultimaPantallaAt = System.currentTimeMillis();
+                        } catch (Exception ignored) { }
+                    }).start();
+                }
+
+                @Override
+                public void onFailure(int codigo) { }
+            });
+        } catch (Exception ignored) { }
     }
 
     private void tomarImagen(Consumer<Bitmap> listo) {
