@@ -412,7 +412,7 @@ function parseResumen(text, hint){
   if (/historial de pedidos/i.test(t) && /pago pendiente|[oó]rdenes pendientes|pedidos completados|id de pedido/i.test(t)) plat = 'resv';
   else if (/resumen de ventas|[oó]rdenes finalizadas|total con descuentos/i.test(t)) plat = 'rappi';
   else if (/historial de pedidos/i.test(t) && /entrega en curso|completado|calificaci|ventas/i.test(t)) plat = 'uber';
-  else if (/historial/i.test(t) && /ventas sin descuentos|n[uú]mero de recolec|ganancias estimadas|pedido aceptado/i.test(t)) plat = 'didi';
+  else if (/historial/i.test(t) && /ventas sin descuentos|n[uú]mero de recolec|ganancias estimadas|pedido aceptado|pedidos\s*\d+\s*ventas|ventas\s*mx\$|ganancias/i.test(t)) plat = 'didi';
   if (!plat) return null;
   const HK = {Uber:'uber', DiDi:'didi', Rappi:'rappi', 'Reservándonos':'resv'};
   if (hint && HK[hint] && HK[hint] !== plat) plat = HK[hint];
@@ -435,6 +435,9 @@ function parseResumen(text, hint){
     const ped = valores(lines, /^pedidos\b:?/i, 'entero'); if (ped.length) r.pedidos = ped[0];
     const ven = valores(lines, /^ventas(?!\s*sin)\b\s*[ⓘⓘ(i)]*/i, 'dinero'); if (ven.length) r.total = ven[0];
     const sd = valores(lines, /^ventas sin descuentos\b\s*[ⓘ(i)]*/i, 'dinero'); if (sd.length) r.extra.ventas_sin_descuentos = sd[0];
+    // Leído de la imagen: «Pedidos 0 Ventas MX$0.00» en un solo renglón
+    const junto = t.match(/pedidos\s*(\d+)\s*ventas\s*(?:mx\$|\$)\s*([\d,]+(?:\.\d{1,2})?)/i);
+    if (junto) { if (r.pedidos == null || !/^pedidos\b/im.test(t.replace(junto[0], ''))) r.pedidos = +junto[1]; if (r.total == null || r.total === r.pedidos) r.total = +junto[2].replace(/,/g, ''); }
     r.totalNota = 'Ventas';
     for (let i=0;i<lines.length;i++){
       const m = lines[i].match(/^#\s?(\d{1,5})$/); if (!m) continue;

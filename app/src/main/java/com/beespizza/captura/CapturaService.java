@@ -941,6 +941,8 @@ public class CapturaService extends AccessibilityService {
         h.postDelayed(() -> tomarImagen(bmp -> {
             if (burbuja != null) burbuja.setVisibility(View.VISIBLE);
             if (bmp == null) { cerrarImagen(); return; }
+            // La primera imagen también sirve como imagen del corte (en Android 8 a 10 no hay otra forma de tomarla)
+            if (paso == 0 && Build.VERSION.SDK_INT < 30) guardarBitmap(bmp);
             leerTexto(bmp, texto -> {
                 boolean repetida = !segmentos.isEmpty() && segmentos.get(segmentos.size() - 1).equals(texto);
                 if (!repetida && !texto.isEmpty()) segmentos.add(texto);
@@ -1061,6 +1063,19 @@ public class CapturaService extends AccessibilityService {
         } catch (Exception e) { if (listo != null) listo.accept(""); }
     }
 
+    private void guardarBitmap(Bitmap bmp) {
+        new Thread(() -> {
+            try {
+                float k = Math.min(1f, 1400f / Math.max(bmp.getWidth(), bmp.getHeight()));
+                Bitmap chica = k < 1f ? Bitmap.createScaledBitmap(bmp, Math.round(bmp.getWidth() * k), Math.round(bmp.getHeight() * k), true) : bmp;
+                java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+                chica.compress(Bitmap.CompressFormat.JPEG, 72, out);
+                ultimaPantalla = android.util.Base64.encodeToString(out.toByteArray(), android.util.Base64.NO_WRAP);
+                ultimaPantallaAt = System.currentTimeMillis();
+            } catch (Exception ignored) { }
+        }).start();
+    }
+
     private void tomarImagen(Consumer<Bitmap> listo) {
         if (Build.VERSION.SDK_INT >= 30) {
             takeScreenshot(Display.DEFAULT_DISPLAY, getMainExecutor(), new TakeScreenshotCallback() {
@@ -1107,9 +1122,11 @@ public class CapturaService extends AccessibilityService {
         // DiDi tiene dos pantallas: el pedido en curso (lista de pedidos a la izquierda)
         // y el detalle del historial (ventana completa con la línea de tiempo a la derecha)
         boolean historialDidi = "DiDi".equals(plataforma) && t.getText().matches("(?is).*(imprimir recibo|soporte didi|socio repartidor).*");
+        // Historial / resumen de ventas del día (para el corte): se lee la pantalla completa, sin recortar columnas
+        boolean resumenVentas = t.getText().matches("(?is).*(historial|resumen de ventas).*") && t.getText().matches("(?is).*(ventas|total con descuentos|n[uú]mero de recolec|ganancias estimadas|pedidos completados).*");
         // DiDi en curso: de la lista de la izquierda solo se queda la tarjeta con la franja naranja (el pedido abierto)
         Rect tarjeta = tarjetaDidi;
-        if ("DiDi".equals(plataforma) && !historialDidi && tarjeta == null && bmpActual != null) {
+        if ("DiDi".equals(plataforma) && !historialDidi && !resumenVentas && tarjeta == null && bmpActual != null) {
             List<Rect> nums = new ArrayList<>();
             for (Text.TextBlock b : t.getTextBlocks())
                 for (Text.Line l : b.getLines()) {
@@ -1134,7 +1151,7 @@ public class CapturaService extends AccessibilityService {
                 if (r == null) continue;
                 float x = r.left / (float) ancho;
                 boolean enTarjeta = tarjeta != null && x < 0.40f && tarjeta.contains(r.centerX(), r.centerY());
-                if (!enTarjeta && (historialDidi ? x > 0.68f : "DiDi".equals(plataforma) ? x < 0.38f : x > 0.64f)) continue;
+                if (!resumenVentas && !enTarjeta && (historialDidi ? x > 0.68f : "DiDi".equals(plataforma) ? x < 0.38f : x > 0.64f)) continue;
                 lineas.add(l);
             }
         }
