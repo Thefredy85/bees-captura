@@ -306,6 +306,27 @@ pre.corte{margin:12px 0 0;white-space:pre-wrap;font:14px/1.6 ui-monospace,Menlo,
   .exito .check{width:96px;height:108px}
   .exito h2{font-size:28px}
 }
+
+/* Analíticas (solo modo administrador) */
+body:not(.admin) .solo-admin{display:none!important}
+.an-rangos{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:16px}
+.an-rangos button{border:2px solid var(--ink);background:transparent;border-radius:999px;padding:9px 16px;font-weight:700;font-size:15px;color:var(--ink)}
+.an-rangos button[aria-pressed="true"]{background:var(--ink);color:#fff}
+.an-grid{align-items:start;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:16px;margin-top:16px}
+.an-sub{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+.an-sub span{background:var(--soft);border-radius:10px;padding:4px 9px;font-size:13px;font-weight:700;color:var(--ink)}
+.stat.total .an-sub span{background:rgba(255,255,255,.12);color:#fff}
+.an-barras{display:grid;gap:6px;margin-top:12px}
+.an-barra{display:grid;grid-template-columns:62px minmax(0,1fr) 48px;gap:10px;align-items:center;width:auto;height:auto;background:none;overflow:visible;font-size:14px;font-variant-numeric:tabular-nums}
+.an-barra i{display:block;height:16px;border-radius:6px;background:var(--honey);min-width:2px;animation:none}
+.an-barra.pico i{background:var(--warn)}
+.an-barra .v{text-align:right;font-weight:700}
+.an-pron{background:var(--honey-soft);border:2px solid var(--honey)}
+.an-pron b.num{font:800 40px/1 var(--display)}
+.an-lista{list-style:none;margin:10px 0 0;padding:0;display:grid;gap:2px}
+.an-lista li{display:flex;justify-content:space-between;gap:10px;padding:7px 0;border-bottom:1px solid var(--line);font-size:15px}
+.an-lista li small{color:var(--muted);font-weight:600}
+.an-lista li b{font-variant-numeric:tabular-nums}
 </style>
 </head>
 <body>
@@ -336,6 +357,7 @@ pre.corte{margin:12px 0 0;white-space:pre-wrap;font:14px/1.6 ui-monospace,Menlo,
   <section id="vConfirmar" class="vista" aria-label="Confirmar pedido"></section>
   <section id="vRegistro" class="vista" aria-label="Registro del día" hidden></section>
   <section id="vExcel" class="vista" aria-label="Excel y corte" hidden></section>
+  <section id="vAnalitica" class="vista" aria-label="Analíticas" hidden></section>
 </main>
 
 <nav class="dock" aria-label="Secciones">
@@ -347,6 +369,9 @@ pre.corte{margin:12px 0 0;white-space:pre-wrap;font:14px/1.6 ui-monospace,Menlo,
   </button>
   <button type="button" data-v="vExcel">
     <svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"></rect><path d="M3 9h18M9 3v18"></path></svg><span>Excel<span class="lbl-largo"> y corte</span></span>
+  </button>
+  <button type="button" data-v="vAnalitica" class="solo-admin">
+    <svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"></path></svg><span>Analíticas</span>
   </button>
 </nav>
 

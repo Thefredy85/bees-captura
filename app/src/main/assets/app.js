@@ -138,6 +138,7 @@ function ir(v){
   document.querySelectorAll('.vista').forEach(s => s.hidden = s.id !== v);
   document.querySelectorAll('.dock button').forEach(b => b.setAttribute('aria-current', b.dataset.v === v ? 'page' : 'false'));
   window.scrollTo({top:0});
+  if (v === 'vAnalitica') { cargarAnalitica(); return; }
   if (v !== 'vConfirmar' && SYNC()) refrescar(viewDay).then(pintarTodo);
   pintarTodo();
 }
@@ -926,6 +927,84 @@ async function pintarAjustesSup(){
 }
 
 /* ---------- todo ---------- */
+
+/* ---------- Analíticas (modo administrador) ---------- */
+let anRango = '7', anDatos = null, anCargando = false, anError = '';
+const DSEM = ['', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
+const nEnt = v => Math.round(Number(v) || 0).toLocaleString('es-MX');
+function rangoFechas(r){
+  const h = new Date(), d = new Date(h);
+  if (r === 'hoy') return [isoDia(h), isoDia(h)];
+  if (r === 'ayer') { d.setDate(d.getDate() - 1); return [isoDia(d), isoDia(d)]; }
+  if (r === 'mes') return [isoDia(new Date(h.getFullYear(), h.getMonth(), 1)), isoDia(h)];
+  d.setDate(d.getDate() - (Number(r) - 1)); return [isoDia(d), isoDia(h)];
+}
+async function cargarAnalitica(){
+  if (!SYNC()) { anError = 'Primero pon la clave de la sucursal en Ajustes.'; pintarAnalitica(); return; }
+  const [desde, hasta] = rangoFechas(anRango);
+  anCargando = true; anError = ''; pintarAnalitica();
+  try { anDatos = await rpc('delivery_analitica', {d: {desde, hasta}}); }
+  catch(e) { anError = e.message || 'No se pudo cargar'; }
+  anCargando = false; pintarAnalitica();
+}
+function barrasHtml(filas, etiqueta, valor, fmt){
+  const max = Math.max(1, ...filas.map(valor));
+  const top = filas.length ? Math.max(...filas.map(valor)) : 0;
+  return '<div class="an-barras">' + filas.map(f => { const v = valor(f);
+    return `<div class="an-barra ${v === top && v > 0 ? 'pico' : ''}"><span>${etiqueta(f)}</span><i style="width:${Math.max(1, v / max * 100)}%"></i><span class="v">${fmt ? fmt(f) : nEnt(v)}</span></div>`; }).join('') + '</div>';
+}
+function pintarAnalitica(){
+  const el = $('vAnalitica'); if (!el) return;
+  const rangos = [['hoy','Hoy'],['ayer','Ayer'],['7','7 días'],['30','30 días'],['mes','Este mes']];
+  let h = `<div class="fila-tit" style="margin-bottom:12px"><h2 style="margin:0;font:800 30px/1.1 var(--display)">Analíticas de delivery</h2></div>
+    <div class="an-rangos">${rangos.map(([k,n]) => `<button type="button" data-r="${k}" aria-pressed="${anRango===k}">${n}</button>`).join('')}
+    <span class="hint">${anCargando ? 'Cargando…' : anDatos ? esc(nombreDia(anDatos.desde)) + (anDatos.hasta !== anDatos.desde ? ' al ' + esc(nombreDia(anDatos.hasta)) : '') : ''}</span></div>`;
+  if (anError) h += `<div class="empty">${esc(anError)}</div>`;
+  const a = anDatos;
+  if (a && !anError) {
+    const pz = a.pizzas || {}, dias = a.dias || 1, pr = a.pronostico || {};
+    const prods = a.productos || [];
+    const cat = c => prods.filter(x => x.cat === c);
+    const suma = c => cat(c).reduce((t, x) => t + Number(x.qty || 0), 0);
+    h += `<div class="stats">
+      <div class="stat total"><span class="eyebrow">Pizzas</span><b class="num">${nEnt(pz.total)}</b><div class="an-sub"><span>35 cm ${nEnt(pz.t35)}</span><span>40 cm ${nEnt(pz.t40)}</span></div></div>
+      <div class="stat" style="--c:var(--honey)"><span class="eyebrow">Orillas</span><b class="num">${nEnt(pz.orillas)}</b><div class="an-sub"><span>Queso ${nEnt(pz.queso)}</span><span>Puff ${nEnt(pz.puff)}</span><span>Queen ${nEnt(pz.queen)}</span>${Number(pz.wings) ? `<span>Cheesy Wings ${nEnt(pz.wings)}</span>` : ''}</div></div>
+      <div class="stat" style="--c:var(--ok)"><span class="eyebrow">Promedio al día</span><b class="num">${nEnt(Number(pz.total||0) / dias)}</b><span class="hint">pizzas · ${pl(dias,'día')} con pedidos</span></div>
+      <div class="stat" style="--c:var(--ink)"><span class="eyebrow">Pedidos</span><b class="num">${nEnt(a.pedidos)}</b><span class="hint">${dinero(a.venta)}</span></div>
+      <div class="stat" style="--c:var(--resv)"><span class="eyebrow">Pizzas en combo</span><b class="num">${nEnt(pz.en_combo)}</b><span class="hint">${pl(Math.round(suma('Combos')), 'combo')}</span></div>
+    </div>`;
+    // Pronóstico para producción
+    const DS = pr.dia ? DSEM[new Date(pr.dia + 'T12:00').getDay() || 7] : '';
+    h += `<section class="card an-pron"><div class="fila-tit"><h3>Producción para ${esc(DS ? DS.toLowerCase() : 'mañana')}</h3><span class="chip">${pr.semanas ? 'promedio de ' + pl(pr.semanas, DS.toLowerCase()) + ' anteriores' : 'sin datos suficientes'}</span></div>
+      ${pr.semanas ? `<div style="display:flex;gap:22px;flex-wrap:wrap;align-items:flex-end;margin-top:10px"><div><b class="num">~${nEnt(pr.pizzas)}</b><div class="hint">pizzas esperadas</div></div>
+      <div class="an-sub"><span>Con orilla ${nEnt(pr.orillas)}</span><span>Queso ${nEnt(pr.queso)}</span><span>Puff ${nEnt(pr.puff)}</span><span>Queen ${nEnt(pr.queen)}</span>${Number(pr.wings) ? `<span>Cheesy Wings ${nEnt(pr.wings)}</span>` : ''}<span>40 cm ${nEnt(pr.t40)}</span></div></div>` : '<p class="hint">Se calcula con el mismo día de las 4 semanas anteriores.</p>'}</section>`;
+    h += '<div class="an-grid">';
+    // Por hora
+    const horas = a.por_hora || [];
+    h += `<section class="card"><div class="fila-tit"><h3>¿A qué hora?</h3><span class="hint">pizzas por hora</span></div>
+      ${horas.length ? barrasHtml(horas, f => pad(f.h) + ':00', f => Number(f.pizzas), f => nEnt(f.pizzas)) : '<p class="hint">Sin pedidos con hora.</p>'}
+      <p class="hint" style="margin-bottom:0">Hora real de ${nEnt(a.hora_real)} de ${nEnt(a.pedidos)} pedidos (Uber la trae en el pedido, DiDi en su aviso; Rappi se suma conforme se registre al momento).</p></section>`;
+    // Por día de la semana
+    const sem = a.por_semana || [];
+    if (sem.length > 1) h += `<section class="card"><div class="fila-tit"><h3>Por día de la semana</h3><span class="hint">promedio de pizzas</span></div>
+      ${barrasHtml(sem, f => DSEM[f.dow].slice(0,3), f => Number(f.prom), f => nEnt(f.prom))}</section>`;
+    // Por día
+    const pd = a.por_dia || [];
+    if (pd.length > 1) h += `<section class="card"><div class="fila-tit"><h3>Día por día</h3></div><div class="tw"><table><thead><tr><th>Día</th><th class="n">Pedidos</th><th class="n">Pizzas</th><th class="n">40 cm</th><th class="n">Orillas</th></tr></thead><tbody>${
+      pd.slice().reverse().map(f => `<tr><td>${esc(new Date(f.dia + 'T12:00').toLocaleDateString('es-MX', {weekday:'short', day:'numeric', month:'short'}))}</td><td class="n">${f.pedidos}</td><td class="n">${nEnt(f.pizzas)}</td><td class="n">${nEnt(f.t40)}</td><td class="n">${nEnt(f.orillas)}</td></tr>`).join('')}</tbody></table></div></section>`;
+    // Por plataforma
+    const pp = a.por_plat || [];
+    h += `<section class="card"><div class="fila-tit"><h3>Por plataforma</h3></div><ul class="an-lista">${pp.map(f => `<li><span><b style="color:${PCOLOR[f.plat]||'var(--ink)'}">${esc(f.plat)}</b> <small>${f.pedidos} pedidos</small></span><span><b>${nEnt(f.pizzas)}</b> <small>pizzas · ${dinero(f.venta)}</small></span></li>`).join('')}</ul></section>`;
+    // Productos por categoría
+    const lista = (c, titulo, extra) => { const fs = cat(c); if (!fs.length) return '';
+      return `<section class="card"><div class="fila-tit"><h3>${titulo}</h3><span class="chip">${nEnt(suma(c))}</span></div><ul class="an-lista">${fs.map(f => `<li><span>${esc(f.n)}${extra ? ' ' + extra(f) : ''}</span><b>${nEnt(f.qty)}</b></li>`).join('')}</ul></section>`; };
+    h += lista('Pizzas', 'Pizzas', f => [Number(f.t40) ? '40 cm ' + nEnt(f.t40) : '', Number(f.orillas) ? 'orilla ' + nEnt(f.orillas) : '', Number(f.en_combo) ? 'en combo ' + nEnt(f.en_combo) : ''].filter(Boolean).map(t => `<small>· ${t}</small>`).join(' '));
+    h += lista('Combos', 'Combos') + lista('Bebidas', 'Bebidas') + lista('Complementos', 'Complementos') + lista('Postres', 'Postres') + lista('Extras', 'Extras y aderezos');
+    h += '</div>';
+  } else if (!anError && !anCargando) h += '<div class="empty">Toca un periodo para ver las analíticas.</div>';
+  el.innerHTML = h;
+  el.querySelectorAll('[data-r]').forEach(b => b.onclick = () => { anRango = b.dataset.r; cargarAnalitica(); });
+}
 function pintarTodo(){
   pintarConfirmar();
   if (!$('vRegistro').hidden) pintarRegistro();
