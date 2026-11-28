@@ -85,8 +85,11 @@ public class CapturaService extends AccessibilityService {
             if (plat.isEmpty() || !Latido.capturaActiva(this)) return;
             // Resumen de ventas del día (para el corte): cuando la pantalla se queda quieta 2 s se revisa si es el historial
             h.removeCallbacks(revisionResumen); h.postDelayed(revisionResumen, 2000);
-            // DiDi necesita elegir la tarjeta naranja: sigue siendo solo con el botón
-            if ("DiDi".equals(plat)) return;
+            // DiDi: el automático revisa la columna «En curso» (las tarjetas #N de la izquierda)
+            if ("DiDi".equals(plat)) {
+                if (Latido.autoActivo(this)) { h.removeCallbacks(revisionTablero); h.postDelayed(revisionTablero, 2500); }
+                return;
+            }
             // Registro automático: cuando la pantalla se queda quieta 2 s, revisa el tablero de pedidos
             if (Latido.autoActivo(this)) { h.removeCallbacks(revisionTablero); h.postDelayed(revisionTablero, 2000); }
             // Si hay una lectura completa esperando, cualquier movimiento la vuelve a posponer
@@ -217,6 +220,7 @@ public class CapturaService extends AccessibilityService {
             if (raiz == null) return;
             String pkg = String.valueOf(raiz.getPackageName());
             String plat = plataformaDe(pkg);
+            if ("DiDi".equals(plat)) { revisarDidi(raiz, pkg); return; }
             if (!"Uber".equals(plat) && !"Rappi".equals(plat)) return;
             List<Nodo> todos = new ArrayList<>();
             nodosConTexto(raiz, todos);
@@ -252,6 +256,114 @@ public class CapturaService extends AccessibilityService {
             if (primera) { baseAuto = hasta; return; }
             if (elegido != null) abrirDesdeTablero(elegido, plat, pkg, pantalla);
         } catch (Exception ignored) { }
+    }
+
+    // ---------- registro automático de DiDi ----------
+    //
+    // En «En curso» cada pedido es una tarjeta «#N» a la izquierda y su detalle sale a la derecha.
+    // Con el automático: toca SOLO el número «#N» de un pedido ya aceptado que no está registrado,
+    // lee el detalle (texto o imagen) y lo manda a registrar con el precio sin promoción.
+    // Nunca toca Aceptar, Aceptación manual, Más opciones ni Pedido listo.
+
+    private boolean autoDidi = false;
+    private long baseDidi = -1;
+    private static final Pattern DIDI_PENDIENTE = Pattern.compile("(?im)(nuevo pedido|^\\s*aceptar\\s*$|^\\s*ver\\s*$|rechazar)");
+
+    private void revisarDidi(AccessibilityNodeInfo raiz, String pkg) {
+        List<Nodo> todos = new ArrayList<>();
+        nodosConTexto(raiz, todos);
+        StringBuilder sb = new StringBuilder();
+        for (Nodo x : todos) sb.append(x.s).append('\n');
+        String todo = sb.toString();
+        // Solo en «En curso»: nunca en el historial ni con la ventana de pedido nuevo encima
+        if (Pattern.compile("(?i)historial|imprimir recibo|resumen de ventas").matcher(todo).find()) return;
+        if (DIDI_PENDIENTE.matcher(todo).find()) return;
+        Rect pant = new Rect();
+        raiz.getBoundsInScreen(pant);
+        int corte = pant.left + Math.round(Math.max(1, pant.width()) * 0.40f);
+        List<Nodo> nums = new ArrayList<>();
+        for (Nodo x : todos) if (x.r.centerX() < corte && NUM_TARJETA.matcher(x.s).matches()) nums.add(x);
+        if (nums.isEmpty()) return;
+        Collections.sort(nums, (a, b) -> Integer.compare(a.r.top, b.r.top));
+        long hasta = Latido.prefs(this).getLong("auto_hasta", 0);
+        boolean primera = hasta != baseDidi;
+        long ahora = System.currentTimeMillis();
+        Nodo elegido = null;
+        Rect zonaElegida = null;
+        for (int i = 0; i < nums.size(); i++) {
+            Nodo x = nums.get(i);
+            String cod = x.s.replaceAll("\\D", "");
+            int top = x.r.top - Math.round(x.r.height() * 0.8f);
+            int bottom = i + 1 < nums.size() ? nums.get(i + 1).r.top - Math.round(nums.get(i + 1).r.height() * 0.8f) : pant.bottom;
+            Rect zona = new Rect(Math.max(pant.left, x.r.left - Math.round(pant.width() * 0.05f)), top, corte, bottom);
+            StringBuilder t = new StringBuilder();
+            for (Nodo y : todos) if (zona.contains(y.r.centerX(), y.r.centerY())) t.append(y.s).append('\n');
+            boolean activo = ACTIVO.matcher(t).find() && !NO_ACTIVO.matcher(t).find();
+            String k = "DiDi#" + cod;
+            if (primera) { if (activo) conocidos.add(k); continue; }   // lo que ya estaba al prender el automático no se toca
+            if (!activo || conocidos.contains(k) || registrados.contains(cod)) continue;
+            Integer n = intentos.get(k);
+            if (n != null && n >= 2) continue;
+            Long espera = esperarHasta.get(k);
+            if (espera != null && ahora < espera) continue;
+            if (elegido == null) { elegido = x; zonaElegida = zona; }
+        }
+        if (primera) { baseDidi = hasta; return; }
+        if (elegido == null) return;
+        // Sin permiso de captura (Android 8 a 10) no se puede leer la imagen: se avisa en lugar de abrir el pedido
+        if (Build.VERSION.SDK_INT < 30 && ProyeccionService.proyeccion == null) {
+            String cod = elegido.s.replaceAll("\\D", "");
+            conocidos.add("DiDi#" + cod);
+            avisarFallo(this, "DiDi", cod, "falta el permiso de captura de pantalla: toca el hexágono una vez y acéptalo");
+            return;
+        }
+        final String cod = elegido.s.replaceAll("\\D", "");
+        final String k = "DiDi#" + cod;
+        ocupado = true;
+        autoDidi = true;
+        codigoTablero = cod;
+        plataforma = "DiDi";
+        paquete = pkg;
+        intentos.put(k, (intentos.containsKey(k) ? intentos.get(k) : 0) + 1);
+        estadoBurbuja("Leyendo…");
+        final Rect zona = zonaElegida;
+        if (!tocar(elegido.r.centerX(), elegido.r.centerY())) { terminarDidi(); return; }
+        h.postDelayed(() -> {
+            AccessibilityNodeInfo r = getRootInActiveWindow();
+            if (r == null || !paquete.equals(String.valueOf(r.getPackageName()))) { esperarHasta.put(k, System.currentTimeMillis() + 20000); terminarDidi(); return; }
+            corteIzq = corte;
+            tarjetaDidi = zona;
+            segmentos.clear();
+            bajadas = 0;
+            usarGesto = false;
+            silencioso = true;
+            leerPorTexto(r, 0);
+        }, 1800);
+    }
+
+    /** Termina la lectura automática de DiDi: si se leyó el pedido completo se registra; si no, se reintenta o se avisa. */
+    private void finDidi(String texto) {
+        final String cod = codigoTablero, k = "DiDi#" + cod;
+        String t = texto == null ? "" : texto;
+        boolean completo = LINEA_PRODUCTO.matcher(t).find()
+                && Pattern.compile("(?i)(sin\\s*promoci|precio total|ganancias|total)").matcher(t).find();
+        if (completo) {
+            if (!Pattern.compile("(?m)^\\s*#\\s?" + cod + "\\b").matcher(t).find()) t = "#" + cod + "\n" + t;
+            conocidos.add(k);
+            avisarDetectado(t, "DiDi");
+        } else {
+            Integer n = intentos.get(k);
+            if (n != null && n >= 2) { avisarFallo(this, "DiDi", cod, "no se pudo leer completo"); conocidos.add(k); }
+            else esperarHasta.put(k, System.currentTimeMillis() + 20000);
+        }
+        terminarDidi();
+    }
+
+    private void terminarDidi() {
+        autoDidi = false;
+        silencioso = false;
+        tarjetaDidi = null;
+        fin();
     }
 
     private boolean tocar(int x, int y) {
@@ -836,6 +948,14 @@ public class CapturaService extends AccessibilityService {
 
     private void terminarTexto() {
         final String texto = String.join("\n---\n", segmentos);
+        if (autoDidi) {
+            // DiDi casi no deja leer su texto: si no salió el pedido, se lee la imagen del detalle
+            regresarArriba(() -> {
+                if (LINEA_PRODUCTO.matcher(texto).find()) finDidi(texto);
+                else leerPorImagen();
+            });
+            return;
+        }
         if (!TOTAL.matcher(texto).find()) enviarDiagnostico(texto);
         if (deTablero) {
             // Se regresa arriba, se cierra el detalle y ya con el tablero a la vista se manda a registrar
@@ -937,6 +1057,7 @@ public class CapturaService extends AccessibilityService {
         segmentos.clear();
         estadoBurbuja("Leyendo imagen…");
         if (Build.VERSION.SDK_INT < 30 && ProyeccionService.proyeccion == null) {
+            if (autoDidi) { finDidi(""); return; }   // en automático no se abre la ventana del permiso
             // Android 8 a 10: hay que dar permiso de captura de pantalla una vez
             Intent i = new Intent(this, ProyeccionActivity.class);
             i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
@@ -970,7 +1091,7 @@ public class CapturaService extends AccessibilityService {
             if (burbuja != null) burbuja.setVisibility(View.VISIBLE);
             if (bmp == null) { cerrarImagen(); return; }
             // La primera imagen también sirve como imagen del corte (en Android 8 a 10 no hay otra forma de tomarla)
-            if (paso == 0 && Build.VERSION.SDK_INT < 30) guardarBitmap(bmp);
+            if (paso == 0 && Build.VERSION.SDK_INT < 30 && !autoDidi) guardarBitmap(bmp);
             leerTexto(bmp, texto -> {
                 boolean repetida = !segmentos.isEmpty() && segmentos.get(segmentos.size() - 1).equals(texto);
                 if (!repetida && !texto.isEmpty()) segmentos.add(texto);
@@ -990,6 +1111,7 @@ public class CapturaService extends AccessibilityService {
     private void cerrarImagen() {
         final String texto = String.join("\n---\n", segmentos);
         regresarArriba(() -> {
+            if (autoDidi) { finDidi(texto); return; }
             if (texto.trim().isEmpty()) {
                 aviso("No encontré texto en la pantalla.");
                 fin();
