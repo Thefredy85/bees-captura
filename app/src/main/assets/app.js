@@ -22,7 +22,7 @@ const PKEY = {'Uber':'uber','DiDi':'didi','Rappi':'rappi','Reservándonos':'resv
 const PNAME = {uber:'Uber', didi:'DiDi', rappi:'Rappi', resv:'Reservándonos'};
 const PCORTE = {didi:'Didi', uber:'Uber', rappi:'Rappi', resv:'Reservandonos'};
 const PCOLOR = {Uber:'var(--uber)', DiDi:'var(--didi)', Rappi:'var(--rappi)', 'Reservándonos':'var(--resv)'};
-const EN_EXCEL = p => p !== 'Reservándonos';
+const EN_EXCEL = p => !!PKEY[p];
 
 let dict = Object.assign({}, DEFAULT_DICT, store.get('bees.dict', {}));
 /* Líneas de las apps que NO son productos y alguien asignó a mano (p. ej. «Completado» → Tropical Bee Spicy): se olvidan */
@@ -539,8 +539,7 @@ async function quitar(id){
 }
 
 /* ---------- Excel y corte ---------- */
-const CATS = [['Pizzas',6,19],['Combos / promos',20,29],['Complementos',30,38],['Postres',39,41],['Bebidas',42,60],['Dips / aderezos',61,67]];
-const PL3 = ['Uber','DiDi','Rappi'];
+const PL3 = ['Uber','DiDi','Rappi','Reservándonos'];   // las 4 hojas del concentrado
 function textoCorte(){
   const res = getResumenes(), de = p => res.find(r => r.plat === p);
   let tot = 0;
@@ -561,18 +560,21 @@ function pintarExcel(){
     corte += `<tr><td><b style="color:${PCOLOR[PNAME[p]]}">${PNAME[p]}</b>${r ? (r.pendiente ? ' <span class="chip warn">Por subir</span>' : '') : '<div class="hint">sin resumen</div>'}${r && SYNC() ? `<div><button class="btn small ghost" type="button" data-img="${p}" style="margin-top:4px;padding:4px 10px">Ver imagen</button></div>` : ''}</td><td class="n">${capt}${r && r.pedidos != null ? ' de ' + r.pedidos : ''}${av}</td><td class="n">${capt ? dinero(regP) : '—'}${cq}</td><td class="n">${r ? dinero(r.total) : '—'}</td><td class="n">${r ? dinero(neto(p, r.total)) : '—'}</td></tr>`;
   }
   corte += `<tr class="tot"><td colspan="4">Delivery neto</td><td class="n">${dinero(tot)}</td></tr></tbody></table></div><pre class="corte">${esc(textoCorte())}</pre>`;
-  // Concentrado (solo Uber, DiDi y Rappi: lo que lleva el Excel)
+  // Concentrado: mismos renglones que el Excel (se calcula con los productos de cada pedido)
   const tabla = new Map(); let marcas = 0;
-  log.filter(o => PL3.includes(o.platform)).forEach(o => (o.lines||[]).forEach(l => { const t = tabla.get(l.excel) || {Uber:0,DiDi:0,Rappi:0}; t[o.platform] += l.qty; tabla.set(l.excel, t); marcas += l.qty; }));
-  const suma = t => t.Uber + t.DiDi + t.Rappi;
+  const cero = () => Object.fromEntries(PL3.map(p => [p, 0]));
+  log.filter(o => PL3.includes(o.platform)).forEach(o => Registro.orderMarks({items:o.items||[]}, true).rows.forEach((q, r) => {
+    const t = tabla.get(r) || cero(); t[o.platform] += q; tabla.set(r, t); marcas += q; }));
+  const suma = t => PL3.reduce((a, p) => a + t[p], 0);
+  const corto = p => p === 'Reservándonos' ? 'Resv.' : p;
   let con = '';
-  if (!marcas && !conTodos) con = `<div class="empty">Sin productos de Uber, DiDi o Rappi ${viewDay === hoy() ? 'todavía hoy' : 'ese día'}.</div>`;
+  if (!marcas && !conTodos) con = `<div class="empty">Sin productos ${viewDay === hoy() ? 'todavía hoy' : 'ese día'}.</div>`;
   else {
-    con = '<div class="tw"><table><thead><tr><th>Producto</th>' + PL3.map(p => `<th class="n">${p}</th>`).join('') + '<th class="n">Total</th></tr></thead><tbody>';
-    for (const [cat,a,b] of CATS) {
-      const fs = RENGLONES.slice(a-6, b-5).map(n => [n, tabla.get(n) || {Uber:0,DiDi:0,Rappi:0}]).filter(([,t]) => conTodos || suma(t));
+    con = '<div class="tw"><table><thead><tr><th>Producto</th>' + PL3.map(p => `<th class="n">${corto(p)}</th>`).join('') + '<th class="n">Total</th></tr></thead><tbody>';
+    for (const [cat,a,b] of Registro.CATEGORIAS) {
+      const fs = []; for (let r = a; r <= b; r++) { const t = tabla.get(r) || cero(); if (conTodos || suma(t)) fs.push([Registro.RENGLONES[r - Registro.FIRST_ROW], t]); }
       if (!fs.length) continue;
-      con += `<tr class="cat"><td colspan="5">${cat}</td></tr>` + fs.map(([n,t]) => `<tr><td>${esc(n)}</td>${PL3.map(p => `<td class="n${t[p]?'':' cero'}">${t[p]}</td>`).join('')}<td class="n">${suma(t)}</td></tr>`).join('');
+      con += `<tr class="cat"><td colspan="${PL3.length + 2}">${cat}</td></tr>` + fs.map(([n,t]) => `<tr><td>${esc(n)}</td>${PL3.map(p => `<td class="n${t[p]?'':' cero'}">${t[p]}</td>`).join('')}<td class="n">${suma(t)}</td></tr>`).join('');
     }
     con += '<tr class="tot"><td>Total</td>' + PL3.map(p => { let s = 0; tabla.forEach(t => s += t[p]); return `<td class="n">${s}</td>`; }).join('') + `<td class="n">${marcas}</td></tr></tbody></table></div>`;
   }
@@ -600,11 +602,11 @@ async function descargarExcel(){
   const m = $('xMsg'); m.textContent = 'Armando el Excel…';
   try {
     if (SYNC()) { await subirCola(); await refrescar(viewDay); }
-    const orders = getLog().filter(e => PL3.includes(e.platform)).map(e => ({plat:PKEY[e.platform], code:e.number, cust:e.client, items:e.items||[], status:'registrado',
+    const orders = getLog().filter(e => PL3.includes(e.platform)).map(e => ({plat:PKEY[e.platform], code:e.number, cust:e.client, items:e.items||[], total:e.total, status:'registrado',
       createdAt: e.created ? Date.parse(e.created) : Date.now(),
       note: [e.total != null ? 'Total ' + dinero(e.total) + (e.totalNote ? ' (' + e.totalNote + ')' : '') : '', ...(e.notes||[])].filter(Boolean).join(' · ')}));
-    const {bytes, report} = await Registro.buildXlsx(JSZip, window.TEMPLATE_B64, orders, viewDay, {markParts:true, lateMin:10, fmt:hhmm});
-    const nombre = 'REGISTRO_DELIVERY_' + viewDay + '.xlsx';
+    const {bytes, report} = await Registro.buildXlsx(JSZip, window.TEMPLATE_B64, orders, viewDay, {markParts:true, lateMin:10, fmt:hhmm, sucursal:"Bee's Pizza Sullivan"});
+    const nombre = 'VENTAS_DELIVERY_' + viewDay + '.xlsx';
     let res;
     if (APP) res = window.Android.guardarExcel(nombre, aBase64(bytes));
     else { const url = URL.createObjectURL(new Blob([bytes], {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'})); const a = document.createElement('a'); a.href = url; a.download = nombre; document.body.appendChild(a); a.click(); a.remove(); res = 'Descargado: ' + nombre; }

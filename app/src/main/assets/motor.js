@@ -360,14 +360,9 @@ function toItems(order){
   return {items, pending};
 }
 
-// Renglones del formato REGISTRO DELIVERY (6 a 67), como aparecen en la hoja
-const RENGLONES = ['BEE CHEESY WINGS','BEE CLASSIC','BEE MEAT MANIA','BEE MEXICAN PIZZA','BEE MIX MANÍA','BEE TACO PIZZA','BEE TROPICAL PUFF','BEE VEGGIE','DOUBLE CHEESE','HAWAIIAN BEE','SUPREME BEE','TROPICAL BEE SPICY','XTREME BEE','PIZZA QUEEN BEE',
-  'BEE ANTOJO','BEE CHEESY PACK','BEE CRUNCH COMBO','BEE DOUBLE DATE','BEE HAWAIIAN COMBO','BEE PIZZA & CHICKEN','BEE TROPICAL FEAST','COMBO QUEEN BEE','COMBO BEE DUO','COMBO PIBIL BEE',
-  'BEE CHEESY BOMBS (8 PZ)','BEE CRUST','BEE CHEESY BOMBS (12 PZ)',"BEE'S CHICKEN",'BEES WINGS','BUMBLEBEE HAWAIANOS','BUMBLEBEE PEPPERONI','ORILLA EXTRA DE QUESO','PAPAS GAJO',
-  'CANELA DIPS','SWEET BEE BITES (12 PZ)','SWEET BEE BITES (8 PZ)',
-  'AGUA MINERAL 600 ML','AGUA NATURAL 600 ML','COCA COLA 2 L','COCA COLA REGULAR 600 ML','COCA COLA LIGHT 600 ML','COCA COLA ZERO 600 ML','FANTA 2 L','FANTA 600 ML','FUZE TEA DURAZNO','FUZE TEA FRUTOS ROJOS','FUZE TEA LIMÓN','SIDRAL MUNDET 2 L','SIDRAL MUNDET 600 ML','SPRITE 2 L','SPRITE 600 ML','JAMAICA 500 ML','LIMÓN CON CHÍA 500 ML','MARACUYÁ 500 ML','HORCHATA',
-  'ADEREZO BBQ','ADEREZO BÚFALO','ADEREZO MANGO HABANERO','ADEREZO RANCH','BEE SAUCE','BEE SAUCE CHIPOTLE','DIP QUESO'];
-const renglon = r => RENGLONES[r-6] || ('Renglón '+r);
+// Renglones del formato CONCENTRADO DE VENTAS DELIVERY (6 a 107); los de 40 cm llevan «40 CM»
+const RENGLON_REG = () => (typeof Registro !== 'undefined') ? Registro : (typeof globalThis !== 'undefined' && globalThis.Registro);
+const renglon = r => { const R = RENGLON_REG(); const n = R && R.RENGLONES[r - R.FIRST_ROW]; return n ? (r >= 24 && r <= 42 ? n + ' 40 CM' : n) : ('Renglón ' + r); };
 
 /* Lo que se marcará en el Excel para un pedido: [{excel, qty}] con nombres del formato, y lo que no tiene renglón. */
 function marcas(items){

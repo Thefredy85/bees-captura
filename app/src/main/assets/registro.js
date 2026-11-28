@@ -1,44 +1,89 @@
-/* Copiado del Comandero Bee's (generador del formato REGISTRO DELIVERY). Cambios: renglones de Bee Sauce Chipotle y
-   Orilla de queso, y pedidos registrados desde la app de captura. */
-/* Llena el formato REGISTRO DELIVERY (plantilla en blanco) con los pedidos de un día.
+/* Llena el formato CONCENTRADO DE VENTAS DELIVERY (el Excel de los supervisores) con los pedidos de un día.
+   Hojas: CONCENTRADO DELIVERY, UBER, DIDI, RAPPI y RESERVANDONOS. En cada hoja de plataforma, cada columna
+   P1–P50 (C..AZ) es un pedido y se marca X en el renglón de cada producto (con los componentes de los combos).
+   Renglones 6–107: pizzas 35 cm, pizzas 40 cm, combos, complementos, postres, dips y bebidas; total en el 109.
    No usa el DOM: recibe JSZip, así se puede probar fuera del navegador. */
 (function (root) {
   'use strict';
-  var X_IDX = '133';            // índice de la "X" en sharedStrings de la plantilla
   var MAX_COLS = 50;            // P1..P50 (columnas C..AZ)
   var FIRST_COL = 3;            // C
-  var SHEET_FILE = { uber: 'xl/worksheets/sheet2.xml', didi: 'xl/worksheets/sheet3.xml', rappi: 'xl/worksheets/sheet4.xml' };
+  var FIRST_ROW = 6, LAST_ROW = 107, TOTAL_ROW = 109;
+  var PLATS = ['uber', 'didi', 'rappi', 'resv'];
+  var SHEET_FILE = { uber: 'xl/worksheets/sheet2.xml', didi: 'xl/worksheets/sheet3.xml', rappi: 'xl/worksheets/sheet4.xml', resv: 'xl/worksheets/sheet5.xml' };
+  var CONC_COL = { uber: 'C', didi: 'D', rappi: 'E', resv: 'F' };
   var PLAT_NAMES = { uber: 'Uber Eats', didi: 'DiDi Food', rappi: 'Rappi', resv: 'Reservándonos' };
-  var ORILLA_ROW = 37;          // ORILLA EXTRA DE QUESO
-  var COMBO_ROWS = [20, 21, 22, 23, 24, 25, 26, 27, 28, 29];
-  var NO_ROW_OK = { 'Pizza 2 Especialidades': 1, 'Bee Crust': 1 };   // no son combos: sus partes siempre se marcan
+  var ORILLA_ROW = { '35': 77, '40': 78 };        // ORILLA EXTRA DE QUESO 35 / 40 CM
+  var ORILLA_PUFF_ROW = { '35': 79, '40': 80 };   // ORILLA PUFF 35 / 40 CM
+  var COMBO_FIRST = 43, COMBO_LAST = 62;
+  var NO_ROW_OK = { 'Bee Crust': 1 };             // no son combos: sus partes siempre se marcan
 
-  // Renglón del formato para cada producto del comandero.
-  var ROW = {
-    'Bee Cheesy Wings': 6, 'Bee Classic': 7, 'Bee Meat Mania': 8, 'Bee Mexican Pizza': 9, 'Bee Mix Manía': 10,
-    'Bee Taco Pizza': 11, 'Bee Tropical Puff': 12, 'Bee Veggie': 13, 'Double Cheese': 14, 'Hawaiian Bee': 15,
-    'Supreme Bee': 16, 'Tropical Bee Spicy': 17, 'Xtreme Bee': 18, 'Queen Bee': 19,
-    'Combo Antojo': 20, 'Bee Cheesy Pack': 21, 'Bee Crunch': 22, 'Bee Double Date': 23, 'Bee Hawaiian Combo': 24,
-    'Bee Pizza & Chicken': 25, 'Tropical Feast': 26, 'Combo Queen Bee': 27, 'Queen Bee Promo': 27,
-    'Bee Duo': 28, 'Combo Pibil Bee': 29,
-    'Cheesy Bombs 8 pz': 30, 'Bee Crust': 31, 'Cheesy Bombs 12 pz': 32, 'Bee’s Chicken': 33, 'Bee’s Wings': 34,
-    'Bumblebee Hawaianos': 35, 'Bumblebee Pepperoni': 36, 'Papas Gajo': 38,
-    'Canela Dips': 39, 'Sweet Bee Bites 12 pz': 40, 'Sweet Bee Bites 8 pz': 41, 'Sweet Bee Bites': 41,
-    'Agua Mineral 600': 42, 'Agua Natural 600': 43, 'Coca 2L': 44, 'Coca 600': 45, 'Coca Light 600': 46,
-    'Coca Zero 600': 47, 'Fanta 2L': 48, 'Fanta 600': 49, 'Fuze Tea Durazno': 50, 'Fuze Tea Frutos Rojos': 51,
-    'Fuze Tea Limón': 52, 'Mundet 2L': 53, 'Mundet 600': 54, 'Sprite 2L': 55, 'Sprite 600': 56,
-    'Aderezo BBQ': 61, 'Aderezo Búfalo': 62, 'Aderezo Mango Habanero': 63, 'Aderezo Ranch': 64,
-    'Bee Sauce': 65, 'Bee Sauce Chipotle': 66, 'Dip de Queso': 67, 'Orilla de queso': 37,
-    'Bee Water (Jamaica)': 57, 'Bee Water (Limón con Chía)': 58, 'Bee Water (Maracuyá)': 59, 'Bee Water (Horchata)': 60
+  // Renglones del formato, como aparecen en la hoja (6 a 107)
+  var CATEGORIAS = [['PIZZAS 35 CM', 6, 23], ['PIZZAS 40 CM', 24, 42], ['COMBOS', 43, 62], ['COMPLEMENTOS', 63, 80],
+    ['POSTRES', 81, 86], ['DIPS / ADEREZOS', 87, 93], ['BEBIDAS', 94, 107]];
+  var RENGLONES = ['BEE CLASSIC', 'DOUBLE CHEESE', 'SUPREME BEE', 'MIX MANÍA HAWAIIAN', 'MIX MANÍA XTREME', 'MIX MANÍA BEE MEAT MANÍA',
+    'MIX MANÍA MEXICAN', 'MIX MANÍA VEGGIE', 'MIX MANÍA SPICY', 'MIX MANÍA (2 ESPECIALIDADES)', 'BEE MEAT MANÍA', 'BEE MEXICAN PIZZA',
+    'BEE VEGGIE', 'HAWAIIAN BEE', 'TROPICAL BEE SPICY', 'BEE TROPICAL PUFF', 'BEE CHEESY WINGS', 'QUEEN BEE',
+    'BEE CLASSIC', 'DOUBLE CHEESE', 'SUPREME BEE', 'MIX MANÍA HAWAIIAN', 'MIX MANÍA XTREME', 'MIX MANÍA BEE MEAT MANÍA',
+    'MIX MANÍA MEXICAN', 'MIX MANÍA VEGGIE', 'MIX MANÍA SPICY', 'MITAD Y MITAD (2 ESPECIALIDADES)', 'HAWAIIAN BEE', 'XTREME BEE',
+    'BEE MEAT MANÍA', 'BEE MEXICANA', 'BEE VEGGIE', 'TROPICAL BEE SPICY', 'BEE TROPICAL PUFF', 'BEE CHEESY WINGS', 'QUEEN BEE',
+    'BEE COMBO CLÁSICO', 'COMBO BEE SUPREME', 'BEE COMBO ANTOJO', 'BEE SNACK', 'BEE HAWAIIAN COMBO', 'BEE CRUNCH COMBO',
+    'BEE HOUR (2 PIZZAS)', 'BEE DUO', 'BEE PIZZA & CHICKEN', 'COMBO BEE MAX', 'BEE CHEESY PACK', 'BEE FAMILY PACK', 'BEE FIESTA PACK',
+    'BEE MIXTO DÚO', 'BEE MIXTO TRÍO', 'BEE MIXTO FAMILIAR', 'BEE MIXTO FIESTA', 'BEE GIGANTE CLÁSICO', 'BEE GIGANTE DÚO', 'BEE GIGANTE TRÍO',
+    'CANELA DIPS', 'BEE CRUST QUESO', 'BEE CRUST HAWAIANO', 'BEE CRUST PEPPERONI', 'BEE CRUST CHAMPIÑONES', 'BUMBLEBEE QUESO',
+    'BUMBLEBEE PEPPERONI', 'BUMBLEBEE MEXICANO', 'BUMBLEBEE HAWAIANO', 'BEE WINGS', 'BEE’S CHICKEN', 'PAPAS GAJO',
+    'PORCIÓN EXTRA DE QUESO', 'PROTEÍNA EXTRA', 'ORILLA EXTRA DE QUESO 35 CM', 'ORILLA EXTRA DE QUESO 40 CM', 'ORILLA PUFF 35 CM', 'ORILLA PUFF 40 CM',
+    'BEE’S CREAMY', 'BEE’S MEGA CREAMY', 'CHOCO BEE', 'FLUFFLY BEE', 'SWEET BEE BITES (8 PZ)', 'SWEET BEE BITES (12 PZ)',
+    'BEE SAUCE', 'RANCH', 'BUFFALO', 'BBQ', 'MANGO HABANERO', 'HOT HONEY BEE', 'DIP DE QUESO',
+    'AGUA MINERAL 600 ML', 'AGUA NATURAL 600 ML', 'BEE WATER 500 ML', 'COCA-COLA 600 ML', 'COCA-COLA LIGHT 600 ML', 'COCA-COLA ZERO 600 ML',
+    'FANTA 600 ML', 'SPRITE 600 ML', 'FUZE TEA 600 ML', 'SIDRAL MUNDET 600 ML', 'COCA-COLA 2 L', 'FANTA 2 L', 'SPRITE 2 L', 'SIDRAL MUNDET 2 L'];
+
+  // Pizzas: renglón de 35 cm y de 40 cm (null = el formato no tiene ese tamaño)
+  var PIZZA = {
+    'Bee Classic': [6, 24], 'Double Cheese': [7, 25], 'Supreme Bee': [8, 26],
+    'Bee Mix Manía (Hawaiana)': [9, 27], 'Bee Mix Manía (Xtreme)': [10, 28], 'Bee Mix Manía (Meat Mania)': [11, 29],
+    'Bee Mix Manía (Mexicana)': [12, 30], 'Bee Mix Manía (Vegetariana)': [13, 31], 'Bee Mix Manía (Tropical Spicy)': [14, 32],
+    'Bee Mix Manía': [15, 33], 'Pizza 2 Especialidades': [15, 33],
+    'Bee Meat Mania': [16, 36], 'Bee Mexican Pizza': [17, 37], 'Bee Veggie': [18, 38], 'Hawaiian Bee': [19, 34],
+    'Tropical Bee Spicy': [20, 39], 'Bee Tropical Puff': [21, 40], 'Bee Cheesy Wings': [22, 41], 'Queen Bee': [23, 42],
+    'Xtreme Bee': [null, 35]
   };
+  // Lo demás: un solo renglón
+  var ROW = {
+    'Combo Clásico': 43, 'Combo Bee Supreme': 44, 'Combo Antojo': 45, 'Bee Snack': 46, 'Bee Hawaiian Combo': 47, 'Bee Crunch': 48,
+    'Bee Hour': 49, 'Bee Duo': 50, 'Bee Pizza & Chicken': 51, 'Combo Bee Max': 52, 'Bee Cheesy Pack': 53, 'Bee Family Pack': 54,
+    'Bee Fiesta Pack': 55, 'Bee Mixto Dúo': 56, 'Bee Mixto Trío': 57, 'Bee Mixto Familiar': 58, 'Bee Mixto Fiesta': 59,
+    'Bee Gigante Clásico': 60, 'Bee Gigante Dúo': 61, 'Bee Gigante Trío': 62,
+    'Canela Dips': 63, 'Bee Crust (Queso)': 64, 'Bee Crust (Hawaiano)': 65, 'Bee Crust (Pepperoni)': 66, 'Bee Crust (Champiñones)': 67,
+    'Bumblebee de Queso': 68, 'Bumblebee Pepperoni': 69, 'Bumblebee Mexicanos': 70, 'Bumblebee Hawaianos': 71,
+    'Bee’s Wings': 72, 'Bee’s Chicken': 73, 'Papas Gajo': 74, 'Porción extra de queso': 75, 'Proteína extra': 76,
+    'Bee’s Creamy': 81, 'Bee’s Mega Creamy': 82, 'Choco Bee': 83, 'Fluffly Bee': 84,
+    'Sweet Bee Bites 8 pz': 85, 'Sweet Bee Bites': 85, 'Sweet Bee Bites 12 pz': 86,
+    'Bee Sauce': 87, 'Bee Sauce Chipotle': 87, 'Aderezo Ranch': 88, 'Aderezo Búfalo': 89, 'Aderezo BBQ': 90,
+    'Aderezo Mango Habanero': 91, 'Hot Honey Bee': 92, 'Dip de Queso': 93,
+    'Agua Mineral 600': 94, 'Agua Natural 600': 95, 'Bee Water': 96, 'Coca 600': 97, 'Coca Light 600': 98, 'Coca Zero 600': 99,
+    'Fanta 600': 100, 'Sprite 600': 101, 'Fuze Tea': 102, 'Mundet 600': 103, 'Coca 2L': 104, 'Fanta 2L': 105, 'Sprite 2L': 106, 'Mundet 2L': 107
+  };
+  function sinAcentos(s) { return String(s).normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[’']/g, '').toUpperCase().replace(/\s+/g, ' ').trim(); }
+  var POR_NOMBRE = {};
+  RENGLONES.forEach(function (n, i) { var k = sinAcentos(n); if (!POR_NOMBRE[k]) POR_NOMBRE[k] = FIRST_ROW + i; });
+
   // Siempre se marcan aunque estén dentro de un combo (se descuentan por sabor).
   function alwaysMark(name) { return /^Bee Water \(/.test(name); }
-  // "Bee Mix Manía (Hawaiana)" -> renglón de "Bee Mix Manía"; el detalle entre paréntesis no cambia el renglón.
-  function rowOf(name) {
+  /* Renglón de un producto. tam: '40' para pizzas de 40 cm. */
+  function rowOf(name, tam) {
+    name = String(name);
+    var p = PIZZA[name] || PIZZA[name.replace(/\s*\([^)]*\)\s*$/, '')];
+    if (p) return tam === '40' ? p[1] : p[0];
     if (ROW[name]) return ROW[name];
-    var base = String(name).replace(/\s*\([^)]*\)\s*$/, '');
-    return ROW[base];
+    if (/^Bee Water\b/.test(name)) return ROW['Bee Water'];
+    if (/^Fuze Tea\b/.test(name)) return ROW['Fuze Tea'];
+    if (/^Orilla puff/i.test(name)) return ORILLA_PUFF_ROW[tam === '40' ? '40' : '35'];
+    if (/^Orilla de queso/i.test(name)) return ORILLA_ROW[tam === '40' ? '40' : '35'];
+    var base = name.replace(/\s*\([^)]*\)\s*$/, '');
+    if (ROW[base]) return ROW[base];
+    return POR_NOMBRE[sinAcentos(name)] || null;
   }
+  function esPizza(name) { return !!(PIZZA[name] || PIZZA[String(name).replace(/\s*\([^)]*\)\s*$/, '')]); }
 
   function colName(n) { var s = ''; while (n) { var r = (n - 1) % 26; s = String.fromCharCode(65 + r) + s; n = Math.floor((n - 1) / 26); } return s; }
   function add(m, k, q) { m.set(k, (m.get(k) || 0) + q); }
@@ -56,24 +101,29 @@
   /* Cuántas unidades de cada renglón lleva un pedido; lo que no tiene renglón va a "missing". */
   function orderMarks(o, markParts) {
     var rows = new Map(), missing = new Map();
-    function put(name, q) { var r = rowOf(name); if (r) add(rows, r, q); else add(missing, name, q); }
+    function put(name, q, tam) {
+      var r = rowOf(name, tam);
+      if (r) add(rows, r, q);
+      else add(missing, name + (tam === '40' && esPizza(name) ? ' 40 cm' : ''), q);
+    }
+    function orilla(q, tam) { add(rows, ORILLA_ROW[tam === '40' ? '40' : '35'], q); }
     (o.items || []).forEach(function (it) {
-      var q = it.qty || 1;
-      if (it.parts) {
+      var q = it.qty || 1, tam = it.tam === '40' ? '40' : '35';
+      if (it.parts && !PIZZA[it.n]) {
         var isCombo = !NO_ROW_OK[it.n], r0 = ROW[it.n];
         if (isCombo) {
-          if (r0 && COMBO_ROWS.indexOf(r0) >= 0) add(rows, r0, q);
+          if (r0 && r0 >= COMBO_FIRST && r0 <= COMBO_LAST) add(rows, r0, q);
           else add(missing, it.n + ' (combo sin renglón)', q);
         }
         it.parts.forEach(function (p) {
           var pp = parsePart(p.n);
-          if (!isCombo || markParts || alwaysMark(pp.name)) put(pp.name, pp.qty * q);
-          if (p.orilla) add(rows, ORILLA_ROW, q);
+          if (!isCombo || markParts || alwaysMark(pp.name)) put(pp.name, pp.qty * q, '35');
+          if (p.orilla) orilla(q, '35');
         });
-        if (it.orilla) add(rows, ORILLA_ROW, q);
+        if (it.orilla) orilla(q, '35');
       } else {
-        put(it.n, q);
-        if (it.orilla) add(rows, ORILLA_ROW, q);
+        put(it.n, q, tam);
+        if (it.orilla) orilla(q, tam);
       }
     });
     return { rows: rows, missing: missing };
@@ -111,7 +161,12 @@
   function setX(xml, ref) {
     var re = new RegExp('<c r="' + ref + '"( s="\\d+")?\\s*/>');
     if (!re.test(xml)) throw new Error('No encontré la celda ' + ref + ' en la plantilla');
-    return xml.replace(re, '<c r="' + ref + '"$1 t="s"><v>' + X_IDX + '</v></c>');
+    return xml.replace(re, '<c r="' + ref + '"$1 t="inlineStr"><is><t>X</t></is></c>');
+  }
+  function setText(xml, ref, text) {
+    var re = new RegExp('<c r="' + ref + '"( s="\\d+")?\\s*/>');
+    if (!re.test(xml)) return xml;
+    return xml.replace(re, '<c r="' + ref + '"$1 t="inlineStr"><is><t xml:space="preserve">' + esc(text) + '</t></is></c>');
   }
   function setCached(xml, ref, val) {
     var re = new RegExp('(<c r="' + ref + '"[^>]*>(?:<f[^>]*/>|<f[^>]*>[^<]*</f>)?)<v>[^<]*</v>');
@@ -123,67 +178,50 @@
     var lateMs = (opts.lateMin || 10) * 6e4;
     var sorted = orders.slice().sort(function (a, b) { return a.createdAt - b.createdAt; });
     var valid = sorted.filter(function (o) { return o.status !== 'cancelado'; });
-    var prepped = valid.filter(function (o) { return o.readyAt; });
-    var avg = prepped.length ? prepped.reduce(function (a, o) { return a + (o.readyAt - o.createdAt); }, 0) / prepped.length / 6e4 : null;
-    var late = prepped.filter(function (o) { return o.readyAt - o.createdAt > lateMs; }).length;
     var rows = [];
-    function s(ref, t, st) { return '<c r="' + ref + '"' + (st != null ? ' s="' + st + '"' : '') + ' t="inlineStr"><is><t xml:space="preserve">' + esc(t) + '</t></is></c>'; }
-    function n(ref, v, st) { return '<c r="' + ref + '"' + (st != null ? ' s="' + st + '"' : '') + '><v>' + v + '</v></c>'; }
-    var cols = 'ABCDEFGHIJKL'.split('');
-    var title = s('A1', "REGISTRO DE OPERACIÓN DELIVERY — BEE'S PIZZA", 29);
-    cols.slice(1).forEach(function (c) { title += '<c r="' + c + '1" s="29" />'; });
-    rows.push('<row r="1" ht="27.95" customHeight="1">' + title + '</row>');
-    rows.push('<row r="2">' + s('A2', 'FECHA:', 2) + n('B2', dateSerial(dayKey), 3) + '</row>');
-    rows.push('<row r="3">' + s('A3', 'Pedidos (sin cancelados)', 2) + n('B3', valid.length) + '</row>');
-    rows.push('<row r="4">' + s('A4', 'Preparación promedio (min)', 2) + (avg == null ? s('B4', '—') : n('B4', Math.round(avg * 10) / 10)) + '</row>');
-    rows.push('<row r="5">' + s('A5', 'Salieron tarde (más de ' + (opts.lateMin || 10) + ' min)', 2) + n('B5', late) + '</row>');
-    rows.push('<row r="6">' + s('A6', 'Cancelados', 2) + n('B6', sorted.length - valid.length) + '</row>');
-    var heads = ['Hora de entrada', 'Plataforma', '# Pedido', 'Cliente', 'Prioridad', 'Productos', 'Nota', 'Listo a las', 'Preparación (min)', '¿Atrasado?', 'Entregado a las', 'Estado'];
-    rows.push('<row r="8" ht="30" customHeight="1">' + heads.map(function (h, i) { return s(cols[i] + '8', h, 20); }).join('') + '</row>');
-    var stTxt = { cocina: 'En cocina', listo: 'Listo', entregado: 'Entregado', cancelado: 'Cancelado', registrado: 'Registrado (app)' };
+    function s(ref, t) { return '<c r="' + ref + '" t="inlineStr"><is><t xml:space="preserve">' + esc(t) + '</t></is></c>'; }
+    function n(ref, v) { return '<c r="' + ref + '"><v>' + v + '</v></c>'; }
+    var cols = 'ABCDEFGH'.split('');
+    rows.push('<row r="1">' + s('A1', "REGISTRO DE OPERACIÓN DELIVERY — BEE'S PIZZA") + '</row>');
+    rows.push('<row r="2">' + s('A2', 'FECHA:') + s('B2', dayKey) + '</row>');
+    rows.push('<row r="3">' + s('A3', 'Pedidos (sin cancelados)') + n('B3', valid.length) + '</row>');
+    var heads = ['Hora', 'Plataforma', '# Pedido', 'Cliente', 'Productos', 'Total', 'Nota', 'Estado'];
+    rows.push('<row r="5">' + heads.map(function (h, i) { return s(cols[i] + '5', h); }).join('') + '</row>');
+    var stTxt = { cancelado: 'Cancelado', registrado: 'Registrado (app)' };
     sorted.forEach(function (o, i) {
-      var r = 9 + i;
+      var r = 6 + i;
       var prod = (o.items || []).map(function (it) {
-        var t = it.qty + '× ' + it.n + (it.orilla ? ' + orilla de queso' : '');
+        var t = it.qty + '× ' + it.n + (it.tam === '40' ? ' 40 cm' : '') + (it.orilla ? ' + orilla de queso' : '');
         if (it.parts) t += ' (' + it.parts.map(function (p) { return p.n + (p.orilla ? ' + orilla' : ''); }).join(', ') + ')';
-        if (it.note) t += ' [' + it.note + ']';
         return t;
       }).join('; ');
-      var prep = o.readyAt ? Math.round((o.readyAt - o.createdAt) / 6e3) / 10 : null;
-      var atr = (o.status === 'cancelado' || o.backfill || o.status === 'registrado') ? '—' : (o.readyAt ? (o.readyAt - o.createdAt > lateMs ? 'SÍ' : 'NO') : 'EN COCINA');
-      var c = [
-        s('A' + r, o.backfill ? 'Capturado después' : fmt(o.createdAt)), s('B' + r, PLAT_NAMES[o.plat] || o.plat), s('C' + r, o.code || ''), s('D' + r, o.cust || ''),
-        s('E' + r, o.prio === 'urgente' ? 'Urgente' : 'Normal'), s('F' + r, prod), s('G' + r, o.note || ''),
-        s('H' + r, o.readyAt ? fmt(o.readyAt) : ''), prep == null ? s('I' + r, '') : n('I' + r, prep), s('J' + r, atr),
-        s('K' + r, o.deliveredAt ? fmt(o.deliveredAt) : ''), s('L' + r, o.backfill && o.status !== 'cancelado' ? 'Registrado' : (stTxt[o.status] || o.status))
-      ];
+      var c = [s('A' + r, o.backfill ? 'Capturado después' : fmt(o.createdAt)), s('B' + r, PLAT_NAMES[o.plat] || o.plat), s('C' + r, o.code || ''),
+        s('D' + r, o.cust || ''), s('E' + r, prod), o.total != null ? n('F' + r, o.total) : s('F' + r, ''), s('G' + r, o.note || ''),
+        s('H' + r, stTxt[o.status] || o.status || '')];
       rows.push('<row r="' + r + '">' + c.join('') + '</row>');
     });
-    var widths = [16, 15, 14, 18, 11, 70, 28, 12, 15, 13, 15, 13];
+    var widths = [12, 15, 14, 18, 70, 11, 40, 16];
     var colsXml = '<cols>' + widths.map(function (w, i) { return '<col min="' + (i + 1) + '" max="' + (i + 1) + '" width="' + w + '" customWidth="1"/>'; }).join('') + '</cols>';
-    var last = Math.max(8, 8 + sorted.length);
+    var last = Math.max(5, 5 + sorted.length);
     return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
       '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
-      '<dimension ref="A1:L' + last + '"/><sheetViews><sheetView workbookViewId="0"><pane ySplit="8" topLeftCell="A9" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>' +
+      '<dimension ref="A1:H' + last + '"/><sheetViews><sheetView workbookViewId="0"><pane ySplit="5" topLeftCell="A6" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>' +
       '<sheetFormatPr defaultRowHeight="15"/>' + colsXml + '<sheetData>' + rows.join('') + '</sheetData>' +
-      '<mergeCells count="1"><mergeCell ref="A1:L1"/></mergeCells>' +
       '<pageMargins left="0.7" right="0.7" top="0.75" bottom="0.75" header="0.3" footer="0.3"/></worksheet>';
   }
 
   /* orders: pedidos del día (cualquier plataforma, cualquier estado). */
   async function buildXlsx(JSZip, templateB64, orders, dayKey, opts) {
     opts = opts || {};
-    var markParts = opts.markParts === true;
+    var markParts = opts.markParts !== false;
     var fmt = opts.fmt || function (t) { return new Date(t).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', hour12: false }); };
     var zip = await JSZip.loadAsync(templateB64, { base64: true });
     var serial = dateSerial(dayKey);
-    var report = { dayKey: dayKey, plat: {}, resv: 0, cancelled: 0, missing: [], overflow: [], open: 0 };
+    var report = { dayKey: dayKey, plat: {}, cancelled: 0, missing: [], overflow: [] };
     var counts = {}, missingAll = new Map();
     var sorted = orders.slice().sort(function (a, b) { return a.createdAt - b.createdAt; });
     report.cancelled = sorted.filter(function (o) { return o.status === 'cancelado'; }).length;
-    report.resv = sorted.filter(function (o) { return o.plat === 'resv' && o.status !== 'cancelado'; }).length;
-    report.open = sorted.filter(function (o) { return o.status === 'cocina' || o.status === 'listo'; }).length;
-    for (var k of ['uber', 'didi', 'rappi']) {
+    for (var k of PLATS) {
       var file = SHEET_FILE[k];
       var xml = await zip.file(file).async('string');
       var list = sorted.filter(function (o) { return o.plat === k && o.status !== 'cancelado'; });
@@ -192,8 +230,8 @@
       var cnt = {};
       plan.cells.forEach(function (rc) { xml = setX(xml, colName(FIRST_COL + rc[1]) + rc[0]); cnt[rc[0]] = (cnt[rc[0]] || 0) + 1; });
       var sum = 0;
-      for (var r = 6; r <= 67; r++) { var v = cnt[r] || 0; sum += v; xml = setCached(xml, 'BA' + r, v); }
-      xml = setCached(xml, 'BA69', sum);
+      for (var r = FIRST_ROW; r <= LAST_ROW; r++) { var v = cnt[r] || 0; sum += v; xml = setCached(xml, 'BA' + r, v); }
+      xml = setCached(xml, 'BA' + TOTAL_ROW, sum);
       zip.file(file, xml);
       counts[k] = cnt;
       plan.missing.forEach(function (q, name) { add(missingAll, name, q); });
@@ -201,31 +239,35 @@
       report.plat[k] = { name: PLAT_NAMES[k], orders: list.length, withMarks: plan.orders, columns: plan.columns, layout: plan.layout, units: sum };
     }
     var c1 = await zip.file('xl/worksheets/sheet1.xml').async('string');
-    c1 = setCached(c1, 'C3', serial);
-    var grand = 0, F = {};
-    for (var r2 = 6; r2 <= 67; r2++) {
-      var f = (counts.uber[r2] || 0) + (counts.didi[r2] || 0) + (counts.rappi[r2] || 0); F[r2] = f; grand += f;
+    c1 = setCached(c1, 'F3', serial);
+    if (opts.sucursal) c1 = setText(c1, 'B3', opts.sucursal);
+    var grand = 0, G = {};
+    for (var r2 = FIRST_ROW; r2 <= LAST_ROW; r2++) {
+      G[r2] = PLATS.reduce(function (t, p) { return t + (counts[p][r2] || 0); }, 0); grand += G[r2];
     }
-    for (var r3 = 6; r3 <= 67; r3++) {
-      c1 = setCached(c1, 'C' + r3, counts.uber[r3] || 0); c1 = setCached(c1, 'D' + r3, counts.didi[r3] || 0);
-      c1 = setCached(c1, 'E' + r3, counts.rappi[r3] || 0); c1 = setCached(c1, 'F' + r3, F[r3]);
-      c1 = setCached(c1, 'G' + r3, grand ? F[r3] / grand : 0);
+    for (var r3 = FIRST_ROW; r3 <= LAST_ROW; r3++) {
+      PLATS.forEach(function (p) { c1 = setCached(c1, CONC_COL[p] + r3, counts[p][r3] || 0); });
+      c1 = setCached(c1, 'G' + r3, G[r3]);
+      c1 = setCached(c1, 'H' + r3, grand ? G[r3] / grand : 0);
     }
-    c1 = setCached(c1, 'F69', grand);
+    c1 = setCached(c1, 'G' + TOTAL_ROW, grand);
     zip.file('xl/worksheets/sheet1.xml', c1);
     report.total = grand;
 
-    // hoja OPERACIÓN
-    zip.file('xl/worksheets/sheet5.xml', operationSheet(dayKey, sorted, opts, fmt));
+    // Hoja OPERACIÓN (lista de pedidos del día) y que Excel recalcule al abrir
+    zip.file('xl/worksheets/sheet6.xml', operationSheet(dayKey, sorted, opts, fmt));
     var ct = await zip.file('[Content_Types].xml').async('string');
-    zip.file('[Content_Types].xml', ct.replace('</Types>', '<Override PartName="/xl/worksheets/sheet5.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml" /></Types>'));
+    zip.file('[Content_Types].xml', ct.replace('</Types>', '<Override PartName="/xl/worksheets/sheet6.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml" /></Types>'));
     var rels = await zip.file('xl/_rels/workbook.xml.rels').async('string');
-    zip.file('xl/_rels/workbook.xml.rels', rels.replace('</Relationships>', '<Relationship Id="rId20" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet5.xml" /></Relationships>'));
+    zip.file('xl/_rels/workbook.xml.rels', rels.replace('</Relationships>', '<Relationship Id="rId20" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet6.xml" /></Relationships>'));
     var wbx = await zip.file('xl/workbook.xml').async('string');
     if (wbx.indexOf('</sheets>') < 0) throw new Error('Plantilla sin lista de hojas');
-    zip.file('xl/workbook.xml', wbx.replace('</sheets>', '<sheet name="OPERACIÓN" sheetId="5" r:id="rId20" /></sheets>'));
+    wbx = wbx.replace('</sheets>', '<sheet name="OPERACIÓN" sheetId="6" r:id="rId20" /></sheets>')
+      .replace(/activeTab="\d+"/, 'activeTab="0"')
+      .replace(/<calcPr([^>]*?)\s*\/>/, function (m, a) { return '<calcPr' + a.replace(/\s*fullCalcOnLoad="[^"]*"/, '') + ' fullCalcOnLoad="1" />'; });
+    zip.file('xl/workbook.xml', wbx);
     var app = await zip.file('docProps/app.xml').async('string');
-    app = app.replace('<vt:i4>4</vt:i4>', '<vt:i4>5</vt:i4>').replace('<vt:vector size="4" baseType="lpstr">', '<vt:vector size="5" baseType="lpstr">')
+    app = app.replace('<vt:i4>5</vt:i4>', '<vt:i4>6</vt:i4>').replace('<vt:vector size="5" baseType="lpstr">', '<vt:vector size="6" baseType="lpstr">')
       .replace('</vt:vector></TitlesOfParts>', '<vt:lpstr>OPERACIÓN</vt:lpstr></vt:vector></TitlesOfParts>');
     zip.file('docProps/app.xml', app);
 
@@ -235,6 +277,7 @@
     return { bytes: bytes, report: report };
   }
 
-  var api = { buildXlsx: buildXlsx, ROW: ROW, rowOf: rowOf, orderMarks: orderMarks, planPlatform: planPlatform, dateSerial: dateSerial };
+  var api = { buildXlsx: buildXlsx, ROW: ROW, PIZZA: PIZZA, rowOf: rowOf, orderMarks: orderMarks, planPlatform: planPlatform, dateSerial: dateSerial,
+    RENGLONES: RENGLONES, CATEGORIAS: CATEGORIAS, FIRST_ROW: FIRST_ROW, LAST_ROW: LAST_ROW };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.Registro = api;
 })(typeof window !== 'undefined' ? window : globalThis);
