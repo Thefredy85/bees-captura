@@ -1102,6 +1102,20 @@ window.cargarCaptura = async (t, plataforma, met) => {
   texto = String(t || ''); plataformaHint = PLATS.includes(plataforma) ? plataforma : ''; metodo = met || '';
   order = null; resumen = null; fechaOk = false; verInfo = false; ultimoId = null; leer();
   if (modoReg) tocarModo();
+  // No se leyó ni un pedido ni un resumen de ventas: ventana emergente en lugar de un pedido vacío
+  const nada = !resumen && (!order || (!order.products.length && !order.number && order.total == null));
+  if (nada) {
+    if (SYNC()) sb('POST', 'delivery_lecturas', '', {plat: plataformaHint || null, tableta: plataformaHint || null, metodo: metodo || null,
+      motivo: 'nada detectado', version: 'web', texto: texto.slice(0, 12000)}).catch(() => {});
+    order = null; estadoConf = 'vacio'; ir('vConfirmar');
+    $('modalCaja').innerHTML = `<h2>No se ha detectado pedido o corte</h2>
+      <p class="hint" style="margin:0">Abre el pedido completo (con sus productos y el total) o el historial de ventas del día, y vuelve a tocar el hexágono.</p>
+      <div style="display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap">${APP ? `<button class="btn primary" type="button" id="ndVolver">Volver a ${esc(plataformaHint || 'la app')}</button>` : ''}<button class="bt lt" type="button" id="ndCerrar">Cerrar</button></div>`;
+    $('modal').hidden = false;
+    $('ndCerrar').onclick = cerrarModal;
+    const v = $('ndVolver'); if (v) v.onclick = () => { cerrarModal(); window.Android.volver(); };
+    return;
+  }
   ir('vConfirmar');
   // Si no salió ningún producto, se guarda lo que leyó la tableta para poder corregir el lector
   if (SYNC() && order && (!order.products.length || order.total == null)) {

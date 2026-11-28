@@ -459,8 +459,13 @@ function parseResumen(text, hint){
     r.totalNota = 'Ventas';
     for (let i=0;i<lines.length;i++){
       if (!/^[A-Z0-9]{5}$/.test(lines[i]) || !/\d/.test(lines[i])) continue;
-      const fila = {code:lines[i], cliente: lines[i-1] && !/\d/.test(lines[i-1]) ? lines[i-1] : '', monto:null, hora:'', estado:''};
-      for (let j=i+1; j<lines.length && j<=i+6 && !/^[A-Z0-9]{5}$/.test(lines[j]); j++){
+      const fila = {code:lines[i], cliente: lines[i-1] && !/\d/.test(lines[i-1]) && !/entregad|cancelad|reembols/i.test(lines[i-1]) ? lines[i-1] : '', monto:null, hora:'', estado:''};
+      // Uber en tableta grande: «Nombre · MXN 300.88 · Entregado · 52D3A» (el monto va antes del número)
+      if (lines[i-2] && /MXN|\$/.test(lines[i-2]) && /entregad|cancelad|reembols|en curso/i.test(lines[i-1]||'')) {
+        fila.monto = dineroEn(lines[i-2]); fila.estado = (lines[i-1].match(/entregado|cancelado|reembols\w*|en curso/i)||[''])[0];
+        if (lines[i-3] && !/\d/.test(lines[i-3])) fila.cliente = lines[i-3];
+      }
+      for (let j=i+1; j<lines.length && j<=i+6 && !/^[A-Z0-9]{5}$/.test(lines[j]) && !/^calificaci/i.test(lines[j]); j++){
         const d = /MXN|\$/.test(lines[j]) ? dineroEn(lines[j]) : null;
         if (d != null && fila.monto == null) fila.monto = d;
         if (!fila.hora && hora12(lines[j])) fila.hora = hora12(lines[j]);

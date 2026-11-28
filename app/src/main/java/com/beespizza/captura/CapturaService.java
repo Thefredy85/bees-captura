@@ -829,7 +829,8 @@ public class CapturaService extends AccessibilityService {
             return;
         }
         regresarArriba(() -> {
-            if (LINEA_PRODUCTO.matcher(texto).find()) {
+            // Pedido o resumen de ventas del día (historial): se manda el texto tal cual, sin pasar por la imagen
+            if (LINEA_PRODUCTO.matcher(texto).find() || esResumen(texto)) {
                 abrirConfirmacion(texto, plataforma, "texto");
             } else {
                 // La app no deja leer su texto: usamos la imagen de la pantalla
@@ -980,6 +981,10 @@ public class CapturaService extends AccessibilityService {
     private static final Pattern MONTOS = Pattern.compile("(?i)(\\$|mx\\$|mxn|mex\\$)\\s?[\\d,]+(\\.\\d{1,2})?|\\b\\d{1,2}/\\d{1,2}/\\d{4}\\b|\\b\\d{4}-\\d{2}-\\d{2}\\b|\\b\\d{1,2} (de )?[a-z]{3}\\.? \\d{4}\\b");
     private final java.util.Map<String, String> firmaResumen = new java.util.HashMap<>();
     private final Runnable revisionResumen = this::revisarResumen;
+
+    private boolean esResumen(String texto) {
+        return RES_UBER.matcher(texto).matches() || RES_RAPPI.matcher(texto).matches() || RES_DIDI.matcher(texto).matches() || RES_RESV.matcher(texto).matches();
+    }
 
     private void revisarResumen() {
         try {
