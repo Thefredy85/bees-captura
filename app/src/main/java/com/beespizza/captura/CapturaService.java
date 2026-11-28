@@ -461,11 +461,13 @@ public class CapturaService extends AccessibilityService {
     /** Si la pantalla de Bee's está abierta, la pregunta ahí; si no, manda una notificación. */
     private void avisarDetectado(String texto, String plat) {
         MainActivity m = MainActivity.activa;
-        if (m != null) {
+        if (!Latido.autoActivo(this)) {
+            // Sin automático: globito junto al hexágono («Nuevo pedido detectado · ¿Registrar?»); si no se puede, notificación
+            if (preguntarRegistro(texto, plat)) return;
+        } else if (m != null) {
             m.pedidoDetectado(texto, plat);
-            if (Latido.autoActivo(this)) return;
-            // Sin automático: además del aviso dentro de Bee's, sale una notificación para tocar y registrar
-        } else if (Latido.autoActivo(this)) {
+            return;
+        } else {
             Intent a = new Intent(this, MainActivity.class);
             a.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_NO_ANIMATION);
             a.putExtra("texto", texto);
@@ -579,6 +581,7 @@ public class CapturaService extends AccessibilityService {
     }
 
     private void quitarBurbuja() {
+        if (globo != null) globo.quitar();
         if (burbuja != null && wm != null) {
             try { wm.removeView(burbuja); } catch (Exception ignored) { }
         }
@@ -593,8 +596,33 @@ public class CapturaService extends AccessibilityService {
     void marcarRegistrado(String mensaje) {
         h.post(() -> {
             if (burbuja != null) burbuja.setEstado(Burbuja.HECHO);
-            if (mensaje != null && !mensaje.isEmpty()) Toast.makeText(this, mensaje, Toast.LENGTH_SHORT).show();
+            if (mensaje == null || mensaje.isEmpty()) return;
+            // El globito junto al hexágono; si no hay hexágono, el aviso normal
+            if (burbuja != null && globo() != null) {
+                String plat = mensaje.startsWith("Uber") ? "Uber" : mensaje.startsWith("DiDi") ? "DiDi" : mensaje.startsWith("Rappi") ? "Rappi" : mensaje.startsWith("Reserv") ? "Reservándonos" : "";
+                globo().hecho(plat, mensaje.replaceFirst(" registrado", ""), lp.x, lp.y, burbuja.getWidth());
+            } else Toast.makeText(this, mensaje, Toast.LENGTH_SHORT).show();
         });
+    }
+
+    // ---------- globito «Nuevo pedido detectado · ¿Registrar?» ----------
+    private Globo globo;
+    private final java.util.Map<String, Long> preguntados = new java.util.HashMap<>();
+    private Globo globo() { if (globo == null && wm != null) globo = new Globo(this, wm); return globo; }
+
+    /** Pregunta junto al hexágono si se registra el pedido que está abierto. Devuelve false si no se pudo mostrar. */
+    private boolean preguntarRegistro(String texto, String plat) {
+        if (burbuja == null || globo() == null) return false;
+        String cod = codigoDe(texto);
+        String k = plat + "#" + (cod == null ? Integer.toHexString(texto.hashCode()) : cod);
+        Long antes = preguntados.get(k);
+        if (antes != null && System.currentTimeMillis() - antes < 30 * 60 * 1000) return true;   // ya se preguntó (o «Ahora no»)
+        preguntados.put(k, System.currentTimeMillis());
+        final String pkg = paquete;
+        h.post(() -> globo().preguntar(plat, cod, lp.x, lp.y, burbuja.getWidth(),
+                () -> { paquete = pkg; abrirConfirmacion(texto, plat, "texto"); },
+                null));
+        return true;
     }
 
     private void aviso(String m) {
